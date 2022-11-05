@@ -7,6 +7,9 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node index.js"
   },
+  "bin": {
+    "goodboy": "./index.js"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
