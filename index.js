@@ -16,7 +16,7 @@ let seen = [];
 
 const formatURL = function (path){
 
-    if(path.includes("https://")){
+    if (path.includes("https://") || path.includes("http://") ){
         if(path.search(base.REGEXP) > -1) return path;
         return;
     }
@@ -62,7 +62,8 @@ const crawl = async function ( url ){
 
 
 async function getURLToCrawel(){
-    base.URL =  prompt('Please insert an url to CRAWl: ');
+    
+    base.URL =  prompt('Please insert an url to CRAWL: ');
 
     try{
         let test = new URL(base.URL);
@@ -94,7 +95,7 @@ async function init(){
     await getURLToCrawel();
     await getSearchQuery();
     
-    await crawl(base.URL);
+    return await crawl(base.URL);
 }
 
 init();
