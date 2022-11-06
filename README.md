@@ -4,7 +4,7 @@
 <p>Web Crawler<p>
 </div>
 
-```sh
+```
 Usage: Good-Boy Crawler [options] <url>
 
 CLI to search text or image in a given website!
