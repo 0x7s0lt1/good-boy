@@ -1,32 +1,27 @@
-#! usr/bin/env node
 "use strict";
 
-const fs = require('fs');
-const { Command } = require('commander');
-const program = new Command();
-const { JSDOM } = require("jsdom");
+import * as fs  from 'fs';
+import { Command } from 'commander';
+const  program: Command = new Command();
+import { JSDOM }  from "jsdom";
 
-const USER_AGENT = "Good-Boy";
+const USER_AGENT: string = "Good-Boy";
 
+let _URL: URL;
+let _URL_REGEX: RegExp;
+let QUERY: RegExp;
+let IMAGE: string;
+let F_NAME: string;
 
-let _URL;
-let F_NAME;
-let QUERY,IMAGE;
-
-let seen = [];
-let is = {
-    querySearch: null,
-    imageSearch: null,
-};
+let seen: string[] = [];
 
 
 
-
-
-const formatURL = function (path){
+const formatURL = function (path: any): any
+{
 
     if (path.includes("https://") || path.includes("http://") ){
-        if(path.search(_URL.regexp) > -1) return path;
+        if(path.search(_URL_REGEX) > -1) return path;
         return;
     }
     if(!path.startsWith('/'))  path = ( "/" + path );
@@ -36,7 +31,8 @@ const formatURL = function (path){
 }
 
 
-const crawl = async function ( url ){
+const crawl = async function ( url: string|null ) : Promise<any>
+{
 
     try{
 
@@ -53,14 +49,14 @@ const crawl = async function ( url ){
         let resp = await fetch(url,{headers: { "User-Agent"   : USER_AGENT } });
         let html = await resp.text();
 
-        let doc = new JSDOM(html);
+        let doc: any = new JSDOM(html);
 
-        let search = ( doc.window.document.body.textContent.match(QUERY) || [] );
+        let search: any = ( doc.window.document.body.textContent.match(QUERY) || [] );
         if(search.length > 0) fs.appendFile( F_NAME, `Match: ${search.length} | URL: ${url}  \r\n`,()=>0);
 
         //let images = doc.window.document.querySelectorAll('img'); TODO: features image search
         let anchors = doc.window.document.querySelectorAll('a');
-        if(anchors.length > 0) anchors.forEach( async a => await crawl(a.href) );
+        if(anchors.length > 0) anchors.forEach( async ( a: any ) => await crawl(a.href) );
 
     }catch(err){
         //console.log(err);
@@ -71,7 +67,8 @@ const crawl = async function ( url ){
 
 
 
-async function init(){
+const init = async function () : Promise<void>
+{
 
     program
         .name('Good-Boy Crawler')
@@ -88,21 +85,16 @@ async function init(){
             try{
 
                 _URL = new URL(url);
-                _URL.regexp = new RegExp( _URL.href + "|" + _URL.href.replace('www.',""),'i'); 
+                _URL_REGEX = new RegExp( _URL.href + "|" + _URL.href.replace('www.',""),'i'); 
 
                 F_NAME = options.output + _URL.host + new Date().getTime() + ".txt";
 
+
                 if(!options.query && !options.image) return console.log('Please giva search query (-q) or path of a image-pattern (-img)!');
 
-                if(options.query){
-                    is.querySearch = true;
-                    QUERY = new RegExp(options.query, 'g');
-                }
-
-                if(options.image){
-                    is.imageSearch = true;
-                    IMAGE = options.image;
-                }
+                if(options.query) QUERY = new RegExp(options.query, 'g');
+                if(options.image) IMAGE = options.image;
+                
 
             }catch(err){
                 console.log(err);
