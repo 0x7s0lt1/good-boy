@@ -63,7 +63,7 @@ const crawl = async function ( url ){
         if(anchors.length > 0) anchors.forEach( async a => await crawl(a.href) );
 
     }catch(err){
-        console.log(err);
+        //console.log(err);
     }
     
     
@@ -80,17 +80,17 @@ async function init(){
 
     program
         .argument('<url>', 'URL to Crawel')
-        .option('-q, --query <q>','Search query ')
-        .option('-img, --image <img>','Path of a image search pattern')
-        .option('-o, --output <oputput_path>','Output Path','./')
+        .option('-q, --query <query>','Search query ')
+        .option('-img, --image <image>','Path of a image search pattern')
+        .option('-o, --output <oputput path>','Output Path','./')
         .action((url,options) => {
         
             try{
 
                 _URL = new URL(url);
+                _URL.regexp = new RegExp( _URL.href + "|" + _URL.href.replace('www.',""),'i'); 
+
                 F_NAME = options.output + _URL.host + new Date().getTime() + ".txt";
-                let exp = _URL.href + "|" + _URL.href.replace('www.',""); 
-                _URL.regexp = new RegExp(exp,'i'); 
 
                 if(!options.query && !options.image) return console.log('Please giva search query (-q) or path of a image-pattern (-img)!');
 
