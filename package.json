@@ -14,7 +14,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "jsdom": "^20.0.2",
-    "prompt-sync": "^4.2.0"
+    "commander": "^9.4.1",
+    "jsdom": "^20.0.2"
   }
 }

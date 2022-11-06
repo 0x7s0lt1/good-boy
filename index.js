@@ -2,27 +2,36 @@
 "use strict";
 
 const fs = require('fs');
-const prompt = require("prompt-sync")();
+const { Command } = require('commander');
+const program = new Command();
 const { JSDOM } = require("jsdom");
 
 const USER_AGENT = "Good-Boy";
 
-let query;
-let base = {
-    URL: null,
-    REGEXP : null,
-};
+
+let _URL;
+let F_NAME;
+let QUERY,IMAGE;
+
 let seen = [];
+let is = {
+    querySearch: null,
+    imageSearch: null,
+};
+
+
+
+
 
 const formatURL = function (path){
 
     if (path.includes("https://") || path.includes("http://") ){
-        if(path.search(base.REGEXP) > -1) return path;
+        if(path.search(_URL.regexp) > -1) return path;
         return;
     }
     if(!path.startsWith('/'))  path = ( "/" + path );
         
-    return base.URL + path;
+    return _URL + path;
 
 }
 
@@ -46,8 +55,8 @@ const crawl = async function ( url ){
 
         let doc = new JSDOM(html);
 
-        let search = ( doc.window.document.body.textContent.match(query) || [] );
-        if(search.length > 0) fs.appendFile('./results/result.txt', `Match: ${search.length} | URL: ${url}  \r\n`,()=>0);
+        let search = ( doc.window.document.body.textContent.match(QUERY) || [] );
+        if(search.length > 0) fs.appendFile( F_NAME, `Match: ${search.length} | URL: ${url}  \r\n`,()=>0);
 
         //let images = doc.window.document.querySelectorAll('img'); TODO: features image search
         let anchors = doc.window.document.querySelectorAll('a');
@@ -61,41 +70,49 @@ const crawl = async function ( url ){
 }
 
 
-async function getURLToCrawel(){
-    
-    base.URL =  prompt('Please insert an url to CRAWL: ');
-
-    try{
-        let test = new URL(base.URL);
-
-        let exp = base.URL + "|" + base.URL.replace('www.',""); 
-        base.REGEXP = new RegExp(exp,'i'); 
-
-    }catch(err){
-        console.log("The given URL is invalid! Please try an other!");
-        return getURLToCrawel();
-    }
-
-
-}
-
-async function getSearchQuery() {
-    let _query = prompt('Search Query:');
-
-    if(_query.trim() == ''){
-        console.log('The search parameter is empty! Please enter a query!');
-        return getSearchQuery();
-    }
-
-    return query = new RegExp(_query.trim(), 'g');
-}
 
 async function init(){
 
-    await getURLToCrawel();
-    await getSearchQuery();
-    
-    return await crawl(base.URL);
+    program
+        .name('Good-Boy Crawler')
+        .description('CLI to search text or image in a given website!')
+        .version('0.0.1');
+
+    program
+        .argument('<url>', 'URL to Crawel')
+        .option('-q, --query <q>','Search query ')
+        .option('-img, --image <img>','Path of a image search pattern')
+        .option('-o, --output <oputput_path>','Output Path','./')
+        .action((url,options) => {
+        
+            try{
+
+                _URL = new URL(url);
+                F_NAME = options.output + _URL.host + new Date().getTime() + ".txt";
+                let exp = _URL.href + "|" + _URL.href.replace('www.',""); 
+                _URL.regexp = new RegExp(exp,'i'); 
+
+                if(!options.query && !options.image) return console.log('Please giva search query (-q) or path of a image-pattern (-img)!');
+
+                if(options.query){
+                    is.querySearch = true;
+                    QUERY = new RegExp(options.query, 'g');
+                }
+
+                if(options.image){
+                    is.imageSearch = true;
+                    IMAGE = options.image;
+                }
+
+            }catch(err){
+                console.log(err);
+                console.log("The given URL is invalid! Please try an other!");
+                process.exit();
+            }
+
+        }).parse();
+
+    return await crawl(_URL.href);
 }
 
 init();
