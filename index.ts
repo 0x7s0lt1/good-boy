@@ -3,15 +3,19 @@
 import * as fs  from 'fs';
 import { Command } from 'commander';
 const  program: Command = new Command();
+import { XMLParser } from "fast-xml-parser";
+const Xparser = new XMLParser();
 import { JSDOM }  from "jsdom";
 
-const USER_AGENT: string = "Good-Boy";
+
+const FETCH_OPTIONS = {headers: { "User-Agent" : "Good-Boy" } };
 
 let _URL: URL;
 let _URL_REGEX: RegExp;
 let QUERY: RegExp;
 let IMAGE: string;
 let F_NAME: string;
+
 
 let seen: string[] = [];
 
@@ -30,12 +34,56 @@ const formatURL = function (path: any): any
 
 }
 
+const getSitemap = async function (): Promise<void>
+{
+
+    try{
+
+        let response = await fetch(_URL.href + "robots.txt",FETCH_OPTIONS);
+        if(!response.ok) throw new Error('No robots.txt found!');
+        let file = await response.text();
+        let _arr = file.split("\n").filter(l => l.startsWith('Sitemap:'));
+
+        _arr.forEach( async l => {
+            let url = l.split('Sitemap:')[1].trim();
+            return handleSitemap(url);
+        })
+
+    }catch(err){
+        console.log(err);
+        return await crawl(_URL.href);
+    }
+
+}
+
+const handleSitemap = async function (url : string)
+{
+    try{
+
+        let response = await fetch(url,FETCH_OPTIONS);
+        let file = await response.text();
+        let xml = Xparser.parse(file);
+
+        if(xml.sitemapindex) return handleSitemapInedex(file);
+
+        xml.urlset.url.forEach( async ( u: any ) => await crawl(u.loc) );
+    
+    }catch(err){
+        console.log(err);
+    }
+    
+}
+
+const handleSitemapInedex = function(file : string)
+{
+    let xml = Xparser.parse(file);
+    xml.sitemapindex.sitemap.forEach( async( l: any ) => await handleSitemap(l.loc) );
+}
 
 const crawl = async function ( url: string|null ) : Promise<any>
 {
 
     try{
-
 
         url = formatURL(url);
 
@@ -46,7 +94,7 @@ const crawl = async function ( url: string|null ) : Promise<any>
 
         console.log(url);
 
-        let resp = await fetch(url,{headers: { "User-Agent"   : USER_AGENT } });
+        let resp = await fetch(url,FETCH_OPTIONS);
         let html = await resp.text();
 
         let doc: any = new JSDOM(html);
@@ -104,7 +152,9 @@ const init = async function () : Promise<void>
 
         }).parse();
 
-    return await crawl(_URL.href);
+    return await getSitemap();
 }
+
+
 
 init();
