@@ -124,7 +124,7 @@ const crawl = async function ( url: string|null ) : Promise<any>
 
         if(SEARCH_TYPE.TEXT){
             let search: any = ( doc.window.document.body.textContent.match(QUERY) || [] );
-            if(search.length > 0) fs.appendFile( F_NAME, `Match: ${search.length} | URL: ${url}  \r\n`,()=>0);
+            if(search.length > 0) fs.appendFile( F_NAME, `TEXT MATCH: ${search.length} | URL: ${url}  \r\n`,()=>0);
         }
         
         if(SEARCH_TYPE.IMAGE){
@@ -166,7 +166,7 @@ const init = async function () : Promise<void>
         .version('0.0.1');
 
     program
-        .argument('<url>', 'URL to Crawel')
+        .argument('<url>', 'URL to Crawl')
         .option('-q, --query <query>','Search query ')
         .option('-img, --image <image>','Path of a image search pattern')
         .option('-o, --output <oputput path>','Output Path','./')
