@@ -140,7 +140,7 @@ const crawl = async function ( url: string|null ) : Promise<any>
         }
 
         if(SEARCH_TYPE.REGEX){
-            let search: any =  ( doc.window.document.body.textContent.match(QUERY) || [] );
+            let search: any =  ( doc.window.document.body.textContent.match(REGEX) || [] );
             if(search.length > 0) {
                 search.forEach(( s: any ) => fs.appendFile( F_NAME, s + '\r\n',()=>0) );
             }
