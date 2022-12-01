@@ -9,17 +9,22 @@ import * as Jimp from "jimp";
 const program: Command = new Command();
 const Xparser: XMLParser = new XMLParser();
 
-const FETCH_OPTIONS = {headers: { "User-Agent" : "Good-Boy" } };
+const FETCH_OPTIONS = { headers: { "User-Agent" : "Good-Boy" } };
 
 let _URL: URL;
 let _URL_REGEX: RegExp;
 let QUERY: RegExp;
+let REGEX: RegExp;
 let F_NAME: string;
 let OG_IMAGE: any;
+let EMAIL_REGEX: RegExp = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/gi; 
+let EMAIL_VALID : RegExp = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/;
 
-let SEARCH_TYPE = { IMAGE: false, TEXT : false };
+
+let SEARCH_TYPE = { IMAGE: false, TEXT : false , REGEX : false , EMAIL : false };
 let ERROR_REPORTS = false;
 let seen: string[] = [];
+let mails: string[] = [];
 
 
 
@@ -27,7 +32,7 @@ let seen: string[] = [];
 const formatURL = function (path: any): any
 {
 
-    if (path.includes("https://") || path.includes("http://") ){
+    if (path.startsWith("https://") || path.startsWith("http://") ){
         if(path.search(_URL_REGEX) > -1) return path;
         return;
     }
@@ -56,7 +61,7 @@ const getSitemap = async function (): Promise<void>
 
         console.log('Found Sitemap.');
 
-        _arr.forEach( async l => {
+        _arr.forEach( async ( l: any ) => {
             l.replace('\r','');
             let url = l.split('Sitemap:')[1].trim();
             return handleSitemap(url);
@@ -78,18 +83,24 @@ const handleSitemap = async function (url : string)
         let file = await response.text();
         let xml = Xparser.parse(file);
 
-        if(xml.sitemapindex) return handleSitemapInedex(file);
+        if(xml.sitemapindex) return handleSitemapIndex(file);
 
         console.log('Start crawling from Sitemap..');
-        xml.urlset.url.forEach( async ( u: any ) => await crawl(u.loc) );
-    
+
+        if(Array.isArray(xml.urlset.url)){
+            xml.urlset.url.forEach( async ( u: any ) => await crawl(u.loc) );
+            return
+        }
+
+        await crawl(xml.urlset.url.loc);
+
     }catch(err){
         if(ERROR_REPORTS) console.log(err);
     }
     
 }
 
-const handleSitemapInedex = function(file : string)
+const handleSitemapIndex = function(file : string)
 {
     let xml = Xparser.parse(file);
     xml.sitemapindex.sitemap.forEach( async( l: any ) => await handleSitemap(l.loc) );
@@ -122,9 +133,30 @@ const crawl = async function ( url: string|null ) : Promise<any>
 
         let doc: any = new JSDOM(html);
 
+    
         if(SEARCH_TYPE.TEXT){
             let search: any = ( doc.window.document.body.textContent.match(QUERY) || [] );
             if(search.length > 0) fs.appendFile( F_NAME, `TEXT MATCH: ${search.length} | URL: ${url}  \r\n`,()=>0);
+        }
+
+        if(SEARCH_TYPE.REGEX){
+            let search: any =  ( doc.window.document.body.textContent.match(QUERY) || [] );
+            if(search.length > 0) {
+                search.forEach(( s: any ) => fs.appendFile( F_NAME, s + '\r\n',()=>0) );
+            }
+        }
+
+        if(SEARCH_TYPE.EMAIL){
+            let search: any =  ( doc.window.document.body.innerHTML.match(EMAIL_REGEX) || [] );
+            if(search.length > 0) {
+                search.forEach(( email: any )=> {
+                    if(!EMAIL_VALID.test(email)) return;
+                    if(!mails.includes(email)){
+                        fs.appendFile( F_NAME, email + '\r\n',()=>0);
+                        mails.push(email);
+                    }
+                } );
+            }
         }
         
         if(SEARCH_TYPE.IMAGE){
@@ -149,7 +181,7 @@ const crawl = async function ( url: string|null ) : Promise<any>
         if(anchors.length > 0) anchors.forEach( async ( a: any ) => await crawl(a.href) );
 
     }catch(err){
-        if(ERROR_REPORTS) console.log('* Fetch Error!');
+        if(ERROR_REPORTS) console.log('* Fetch Error!',err);
     }
     
     
@@ -167,26 +199,39 @@ const init = async function () : Promise<void>
 
     program
         .argument('<url>', 'URL to Crawl')
-        .option('-q, --query <query>','Search query ')
+        .option('-q, --query <query>','Search query string ')
+        .option('-e, --email','Search for emails')
+        .option('-regx, --regex <regex>','Regex to search')
         .option('-img, --image <image>','Path of a image search pattern')
         .option('-o, --output <oputput path>','Output Path','./')
-        .option('-e, --error-report','Prints error to the console!')
+        .option('-er, --error-report','Prints error to the console!')
         .action( async (url,options) => {
         
             try{
+
                 _URL = new URL(url);
                 _URL_REGEX = new RegExp( _URL.host + "|" + _URL.href.replace('www.',""),'i'); 
 
                 F_NAME = options.output + _URL.host + new Date().getTime() + ".txt";
 
                 if(options.errorReport) ERROR_REPORTS = true;
+               
+                if(!options.query && !options.regex && !options.image && !options.email ) return console.log('Please giva search query (-q) or path of a image-pattern (-img)!');
 
-                if(!options.query && !options.image) return console.log('Please giva search query (-q) or path of a image-pattern (-img)!');
+                if(options.regex) {
+                    SEARCH_TYPE.REGEX = true;
+                    REGEX = new RegExp(options.regex, 'g');
+                }
 
                 if(options.query) {
                     SEARCH_TYPE.TEXT = true;
                     QUERY = new RegExp(options.query, 'g');
                 }
+
+                if(options.email) {
+                    SEARCH_TYPE.EMAIL = true;
+                }
+
                 if(options.image){
                     SEARCH_TYPE.IMAGE = true;
                     try{
