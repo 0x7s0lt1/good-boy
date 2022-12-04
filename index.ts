@@ -11,6 +11,8 @@ const Xparser: XMLParser = new XMLParser();
 
 const FETCH_OPTIONS = { headers: { "User-Agent" : "Good-Boy" } };
 
+let TIME: number = new Date().getTime();
+
 let _URL: URL;
 let _URL_REGEX: RegExp;
 let QUERY: RegExp;
@@ -26,19 +28,29 @@ let ERROR_REPORTS = false;
 let seen: string[] = [];
 let mails: string[] = [];
 
+let FIILE_TYPES = ['.pdf','.jpg','.svg','.png','jpeg','.mp3','.mp4','.webp','.webm','.html','.css','.js'];
+let DONT_CRAWL_FILES = ['.jpg','.svg','.png','jpeg','.mp3','.mp4','.webp','.webm','.css'];
 
+process.on('exit',() => {
+    TIME = new Date().getTime() - TIME;
+    console.log("Crawle ended in : ",TIME / 1000, 'seconds');
+})
 
 
 const formatURL = function (path: any): any
 {
 
+    if( DONT_CRAWL_FILES.some( type => path.endsWith(type) ) ) return;
+
     if (path.startsWith("https://") || path.startsWith("http://") ){
         if(path.search(_URL_REGEX) > -1) return path;
         return;
     }
+
     if(path.startsWith('./'))  path.replace('./',"");
     if(path.startsWith('../')) path.replace('../',"");
     if(!path.startsWith('/'))  path.unshift("/");
+
     
         
     return _URL + path;
@@ -109,9 +121,9 @@ const imageIsSupported = async function(path: string): Promise<boolean>
 {
 
     let imageTypes = ['.jpg','.png'];
-    imageTypes.some(type => path.endsWith(type));
     
-    return imageTypes.some(type => path.endsWith(type));;
+    return imageTypes.some(type => path.endsWith(type));
+
 }
 
 const crawl = async function ( url: string|null ) : Promise<any>
@@ -150,10 +162,11 @@ const crawl = async function ( url: string|null ) : Promise<any>
             let search: any =  ( doc.window.document.body.innerHTML.match(EMAIL_REGEX) || [] );
             if(search.length > 0) {
                 search.forEach(( email: any )=> {
-                    if(!EMAIL_VALID.test(email)) return;
-                    if(!mails.includes(email)){
-                        fs.appendFile( F_NAME, email + '\r\n',()=>0);
-                        mails.push(email);
+                    let lowermail = email.toLowerCase();
+                    if(!isValidEmail(lowermail)) return;
+                    if(!mails.includes(lowermail)){
+                        fs.appendFile( F_NAME, lowermail + '\r\n',()=>0);
+                        mails.push(lowermail);
                     }
                 } );
             }
@@ -256,6 +269,19 @@ const init = async function () : Promise<void>
         }).parse();
 
     return await getSitemap();
+}
+
+function isValidEmail(email: string): boolean 
+{
+    try{
+        return ( EMAIL_VALID.test(email) && !FIILE_TYPES.some( (type: any) => email.endsWith(type)) && !/\d/.test(email.split('.').at(-1) || "") )  ;
+    }catch(err){
+        if(ERROR_REPORTS){
+            console.log('Email validating Error!',err);
+        }
+        return  false;
+    }
+
 }
 
 
