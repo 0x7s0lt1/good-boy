@@ -33,7 +33,12 @@ let DONT_CRAWL_FILES = ['.jpg','.svg','.png','jpeg','.mp3','.mp4','.webp','.webm
 
 process.on('exit',() => {
     TIME = new Date().getTime() - TIME;
-    console.log("Crawle ended in : ",TIME / 1000, 'seconds');
+    let message: string = "";
+
+    if(SEARCH_TYPE.EMAIL){
+        message += ` | Emails: ${mails.length}`;
+    }
+    console.log("Crawle ended in : ",TIME / 1000, 'seconds', message);
 })
 
 
