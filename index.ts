@@ -1,5 +1,6 @@
 "use strict";
 
+import * as v8 from 'v8';
 import * as fs  from 'fs';
 import { Command } from 'commander';
 import { XMLParser } from "fast-xml-parser";
@@ -9,6 +10,7 @@ import * as Jimp from "jimp";
 const program: Command = new Command();
 const Xparser: XMLParser = new XMLParser();
 
+const MAX_EXECUTING_TIME = 10000000;
 const FETCH_OPTIONS = { headers: { "User-Agent" : "Good-Boy" } };
 
 let TIME: number = new Date().getTime();
@@ -22,9 +24,10 @@ let OG_IMAGE: any;
 let EMAIL_REGEX: RegExp = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/gi; 
 let EMAIL_VALID : RegExp = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/;
 
-
 let SEARCH_TYPE = { IMAGE: false, TEXT : false , REGEX : false , EMAIL : false };
 let ERROR_REPORTS = false;
+let MEMORY_CLEARED = 0; 
+
 let seen: string[] = [];
 let mails: string[] = [];
 
@@ -32,13 +35,20 @@ let FIILE_TYPES = ['.pdf','.jpg','.svg','.png','jpeg','.mp3','.mp4','.webp','.we
 let DONT_CRAWL_FILES = ['.jpg','.svg','.png','jpeg','.mp3','.mp4','.webp','.webm','.css'];
 
 process.on('exit',() => {
-    TIME = new Date().getTime() - TIME;
+
+    TIME = ( ( new Date().getTime() - TIME ) / 1000);
+    const MEMORY = process.memoryUsage().heapUsed / 1024 / 1024;
+
     let message: string = "";
 
     if(SEARCH_TYPE.EMAIL){
-        message += ` | Emails: ${mails.length}`;
+        message += `[ Emails:${mails.length} ]`;
     }
-    console.log("Crawle ended in : ",TIME / 1000, 'seconds', message);
+    
+
+    console.log("\x1b[44m",'Results: ',message,'\x1b[0m');
+    console.log("\x1b[44m",`Execution time : ${TIME} seconds`,`| Memory usage: ${Math.round(MEMORY * 100) / 100} MB | Memory cleared: ${MEMORY_CLEARED}`,'\x1b[0m');
+
 })
 
 
@@ -113,14 +123,32 @@ const handleSitemap = async function (url : string)
 
     }catch(err){
         if(ERROR_REPORTS) console.log(err);
+        console.log('Start crawling from the index page..');
+        return await crawl(_URL.href);
     }
     
 }
 
-const handleSitemapIndex = function(file : string)
+const handleSitemapIndex = async function(file : string)
 {
-    let xml = Xparser.parse(file);
-    xml.sitemapindex.sitemap.forEach( async( l: any ) => await handleSitemap(l.loc) );
+    try{
+
+        let xml = Xparser.parse(file);
+
+        if(Array.isArray(xml.sitemapindex.sitemap)){
+            xml.sitemapindex.sitemap.forEach( async( l: any ) => await handleSitemap(l.loc) );
+            return;
+        }
+    
+        await handleSitemap(xml.sitemapindex.sitemap.loc);
+
+    }catch(err){
+        if(ERROR_REPORTS) console.log(err);
+        console.log('Start crawling from the index page..');
+        return await crawl(_URL.href);
+    }
+    
+
 }
 const imageIsSupported = async function(path: string): Promise<boolean> 
 {
@@ -130,11 +158,33 @@ const imageIsSupported = async function(path: string): Promise<boolean>
     return imageTypes.some(type => path.endsWith(type));
 
 }
+const cleanEmail = function(email: string): string
+{
+    //Maybe better way to check this in the results 
+   if(email.startsWith('20')) email = email.replace('20', '');
+   if(email.startsWith('06')) email = email.replace('06', '');
+
+   return email.toLowerCase();
+}
+const isValidEmail = function(email: string): boolean 
+{
+    try{
+        return ( EMAIL_VALID.test(email) && !FIILE_TYPES.some( (type: any) => email.endsWith(type)) && !/\d/.test(email.split('.').at(-1) || "") )  ;
+    }catch(err){
+        if(ERROR_REPORTS){
+            console.log('Email validating Error!',err);
+        }
+        return  false;
+    }
+
+}
 
 const crawl = async function ( url: string|null ) : Promise<any>
 {
 
     try{
+
+       if(!isMemoryAvailable()) freeUpMemory();
 
         url = formatURL(url);
 
@@ -153,7 +203,7 @@ const crawl = async function ( url: string|null ) : Promise<any>
     
         if(SEARCH_TYPE.TEXT){
             let search: any = ( doc.window.document.body.textContent.match(QUERY) || [] );
-            if(search.length > 0) fs.appendFile( F_NAME, `TEXT MATCH: ${search.length} | URL: ${url}  \r\n`,()=>0);
+            if(search.length > 0) fs.appendFile( F_NAME, `TEXT MATCH: ${search.length} | URL: ${url}  \r\n`, ()=>0);
         }
 
         if(SEARCH_TYPE.REGEX){
@@ -167,7 +217,7 @@ const crawl = async function ( url: string|null ) : Promise<any>
             let search: any =  ( doc.window.document.body.innerHTML.match(EMAIL_REGEX) || [] );
             if(search.length > 0) {
                 search.forEach(( email: any )=> {
-                    let lowermail = email.toLowerCase();
+                    let lowermail = cleanEmail(email);
                     if(!isValidEmail(lowermail)) return;
                     if(!mails.includes(lowermail)){
                         fs.appendFile( F_NAME, lowermail + '\r\n',()=>0);
@@ -206,6 +256,19 @@ const crawl = async function ( url: string|null ) : Promise<any>
 }
 
 
+const isMemoryAvailable = function(): boolean 
+{
+    let heap = v8.getHeapStatistics();
+
+    return heap.used_heap_size < ( heap.heap_size_limit - 50000 );
+}
+const freeUpMemory = function():void
+{
+    seen = mails = [];
+    MEMORY_CLEARED++;
+    console.log('Memory Cleaned at:',TIME.toLocaleString());
+}
+
 
 const init = async function () : Promise<void>
 {
@@ -226,6 +289,8 @@ const init = async function () : Promise<void>
         .action( async (url,options) => {
         
             try{
+
+                if(!url.endsWith('/')) url += '/';
 
                 _URL = new URL(url);
                 _URL_REGEX = new RegExp( _URL.host + "|" + _URL.href.replace('www.',""),'i'); 
@@ -256,7 +321,6 @@ const init = async function () : Promise<void>
 
                         if(!imageIsSupported(options.image)) return console.log("Wrong image format! Accept: ['.jpg','.png']");
                         OG_IMAGE = await Jimp.read(options.image);
-                        //let buffer: Uint8Array = fs.readFileSync(options.image);
                     
                     }catch(err){
                         console.log('* Cant open image-pattern!');
@@ -274,21 +338,7 @@ const init = async function () : Promise<void>
         }).parse();
 
     return await getSitemap();
+    
 }
-
-function isValidEmail(email: string): boolean 
-{
-    try{
-        return ( EMAIL_VALID.test(email) && !FIILE_TYPES.some( (type: any) => email.endsWith(type)) && !/\d/.test(email.split('.').at(-1) || "") )  ;
-    }catch(err){
-        if(ERROR_REPORTS){
-            console.log('Email validating Error!',err);
-        }
-        return  false;
-    }
-
-}
-
-
 
 init();
