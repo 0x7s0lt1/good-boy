@@ -82,7 +82,7 @@ const getSitemap = async function (): Promise<void>
         if(!response.ok) throw new Error('No robots.txt found!');
         let file = await response.text();
         console.log('Found robots.txt');
-        let _arr = file.split("\n").filter(l => l.startsWith('Sitemap:'));
+        let _arr = file.split("\n").filter(l => l.trim().startsWith('Sitemap') || l.trim().startsWith('sitemap') );
 
         if(_arr.length === 0) throw new Error('No Sitemap file found!');
 
@@ -90,8 +90,10 @@ const getSitemap = async function (): Promise<void>
 
         _arr.forEach( async ( l: any ) => {
             l.replace('\r','');
-            let url = l.split('Sitemap:')[1].trim();
+            let url = l.split(/sitemap:/ig)[1].trim();
+
             return handleSitemap(url);
+
         })
 
     }catch(err){
@@ -158,11 +160,12 @@ const imageIsSupported = async function(path: string): Promise<boolean>
     return imageTypes.some(type => path.endsWith(type));
 
 }
-const cleanEmail = function(email: string): string
+const cleanEmail = function(email: any): string
 {
-    //Maybe better way to check this in the results 
+    // Maybe better way to check this in the results it can find different types of garbages
    if(email.startsWith('20')) email = email.replace('20', '');
    if(email.startsWith('06')) email = email.replace('06', '');
+   if( !isNaN(email[0]) )     email = email.substring(0, email.length);
 
    return email.toLowerCase();
 }
@@ -184,7 +187,7 @@ const crawl = async function ( url: string|null ) : Promise<any>
 
     try{
 
-       if(!isMemoryAvailable()) freeUpMemory();
+       if( !isMemoryAvailable() ) freeUpMemory();
 
         url = formatURL(url);
 
@@ -199,7 +202,7 @@ const crawl = async function ( url: string|null ) : Promise<any>
         let html = await resp.text();
 
         let doc: any = new JSDOM(html);
-
+        
     
         if(SEARCH_TYPE.TEXT){
             let search: any = ( doc.window.document.body.textContent.match(QUERY) || [] );
@@ -272,6 +275,8 @@ const freeUpMemory = function():void
 
 const init = async function () : Promise<void>
 {
+
+    process.setMaxListeners(0);
 
     program
         .name('Good-Boy Crawler')
