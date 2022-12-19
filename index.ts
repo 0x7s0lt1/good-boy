@@ -10,7 +10,6 @@ import * as Jimp from "jimp";
 const program: Command = new Command();
 const Xparser: XMLParser = new XMLParser();
 
-const MAX_EXECUTING_TIME = 10000001;
 const FETCH_OPTIONS = { headers: { "User-Agent" : "Good-Boy" } };
 
 let TIME: number = new Date().getTime();
@@ -27,6 +26,7 @@ let EMAIL_VALID : RegExp = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/;
 let SEARCH_TYPE = { IMAGE: false, TEXT : false , REGEX : false , EMAIL : false };
 let ERROR_REPORTS = false;
 let USE_DISK = false;
+let KEEP_TMP = false;
 let MEMORY_CLEARED = 0; 
 
 let seen: string[] = [];
@@ -46,15 +46,16 @@ const onProcessExit = function():void
     let message: string = "";
 
     if(SEARCH_TYPE.EMAIL){
-        message += `[ Emails:${mails.length} ]`;
+        let _mails = USE_DISK ? getTmpJSON(MAILS_TMP_NAME) : mails;
+        message += `[ Emails:${_mails.length} ]`;
     }
 
     if(USE_DISK){
-        [SEEN_TMP_NAME,MAILS_TMP_NAME].forEach( (f_name: string) => fs.unlinkSync(f_name) );
+        if(!KEEP_TMP) [SEEN_TMP_NAME,MAILS_TMP_NAME].forEach( (f_name: string) => fs.unlinkSync(f_name) );
     }
     
 
-    console.log("\x1b[44m",'Results: ',message,'\x1b[0m');
+    if(message.length > 0) console.log("\x1b[44m",'Results: ',message,'\x1b[0m');
     console.log("\x1b[44m",`Execution time : ${TIME} seconds`,`| Memory usage: ${Math.round(MEMORY * 100) / 100} MB | Memory cleared: ${MEMORY_CLEARED}`,'\x1b[0m');
 
     process.exit();
@@ -185,7 +186,7 @@ const cleanEmail = function(email: any): string
 const isValidEmail = function(email: string): boolean 
 {
     try{
-        return ( EMAIL_VALID.test(email) && !FIILE_TYPES.some( (type: any) => email.endsWith(type)) && !/\d/.test(email.split('.').at(-1) || "") )  ;
+        return ( EMAIL_VALID.test(email) && !FIILE_TYPES.some( (type: any) => email.endsWith(type)) && !/\d/.test(email.split('.').at(-1) || "") && email.split('@')[0].length > 1 );
     }catch(err){
         if(ERROR_REPORTS){
             console.log('Email validating Error!',err);
@@ -339,6 +340,7 @@ const init = async function () : Promise<void>
         .option('-img, --image <image>','Path of a image search pattern')
         .option('-ud, --use-disk','Use disk instead of memory to save temporary data.')
         .option('-o, --output <oputput path>','Output Path','./')
+        .option('-keep, --keep-tmp', 'Keep temporary files')
         .option('-er, --error-report','Prints error to the console!')
         .action( async (url,options) => {
         
@@ -370,13 +372,16 @@ const init = async function () : Promise<void>
                 }
 
                 if(options.useDisk) {
+
+                    if(options.keepTmp) KEEP_TMP = true;
+
                     USE_DISK = true;
                     SEEN_TMP_NAME  = "tmp/SEEN_" + _URL.host + new Date().getTime() + ".json";
                     MAILS_TMP_NAME = "tmp/MAILS_" + _URL.host + new Date().getTime() + ".json";
 
                     fs.mkdir('tmp', { recursive: true }, (err) => {
                         if (err) throw err;
-                        
+
                         [SEEN_TMP_NAME,MAILS_TMP_NAME].forEach( ( f: string ) => {
                             fs.appendFile( f, JSON.stringify([]), ()=>0);
                         });

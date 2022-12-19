@@ -6,6 +6,8 @@
 
 # Usage
 ```
+Usage: Good-Boy Crawler [options] <url>
+
 CLI to search text or image in a given website!
 
 Arguments:
@@ -19,6 +21,7 @@ Options:
   -img, --image <image>        Path of a image search pattern
   -ud, --use-disk              Use disk instead of memory to save temporary data.
   -o, --output <oputput path>  Output Path (default: "./")
+  -keep, --keep-tmp            Keep temporary files
   -er, --error-report          Prints error to the console!
   -h, --help                   display help for command
   
