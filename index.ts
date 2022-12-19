@@ -10,7 +10,7 @@ import * as Jimp from "jimp";
 const program: Command = new Command();
 const Xparser: XMLParser = new XMLParser();
 
-const MAX_EXECUTING_TIME = 10000000;
+const MAX_EXECUTING_TIME = 10000001;
 const FETCH_OPTIONS = { headers: { "User-Agent" : "Good-Boy" } };
 
 let TIME: number = new Date().getTime();
@@ -26,16 +26,20 @@ let EMAIL_VALID : RegExp = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/;
 
 let SEARCH_TYPE = { IMAGE: false, TEXT : false , REGEX : false , EMAIL : false };
 let ERROR_REPORTS = false;
+let USE_DISK = false;
 let MEMORY_CLEARED = 0; 
 
 let seen: string[] = [];
+let SEEN_TMP_NAME: string;
 let mails: string[] = [];
+let MAILS_TMP_NAME: string;
 
 let FIILE_TYPES = ['.pdf','.jpg','.svg','.png','jpeg','.mp3','.mp4','.webp','.webm','.html','.css','.js'];
 let DONT_CRAWL_FILES = ['.jpg','.svg','.png','jpeg','.mp3','.mp4','.webp','.webm','.css'];
 
-process.on('exit',() => {
 
+const onProcessExit = function():void
+{
     TIME = ( ( new Date().getTime() - TIME ) / 1000);
     const MEMORY = process.memoryUsage().heapUsed / 1024 / 1024;
 
@@ -44,12 +48,21 @@ process.on('exit',() => {
     if(SEARCH_TYPE.EMAIL){
         message += `[ Emails:${mails.length} ]`;
     }
+
+    if(USE_DISK){
+        [SEEN_TMP_NAME,MAILS_TMP_NAME].forEach( (f_name: string) => fs.unlinkSync(f_name) );
+    }
     
 
     console.log("\x1b[44m",'Results: ',message,'\x1b[0m');
     console.log("\x1b[44m",`Execution time : ${TIME} seconds`,`| Memory usage: ${Math.round(MEMORY * 100) / 100} MB | Memory cleared: ${MEMORY_CLEARED}`,'\x1b[0m');
 
-})
+    process.exit();
+
+}
+
+process.on('SIGINT',onProcessExit);
+process.on('exit',onProcessExit);
 
 
 const formatURL = function (path: any): any
@@ -124,7 +137,7 @@ const handleSitemap = async function (url : string)
         await crawl(xml.urlset.url.loc);
 
     }catch(err){
-        if(ERROR_REPORTS) console.log(err);
+        if(ERROR_REPORTS) console.log("handleSitemap: ",err);
         console.log('Start crawling from the index page..');
         return await crawl(_URL.href);
     }
@@ -145,7 +158,7 @@ const handleSitemapIndex = async function(file : string)
         await handleSitemap(xml.sitemapindex.sitemap.loc);
 
     }catch(err){
-        if(ERROR_REPORTS) console.log(err);
+        if(ERROR_REPORTS) console.log("handleSitemapIndex: ",err);
         console.log('Start crawling from the index page..');
         return await crawl(_URL.href);
     }
@@ -193,8 +206,16 @@ const crawl = async function ( url: string|null ) : Promise<any>
 
         if(!url) return;
 
-        if( seen.includes(url) ) return;
-        seen.push(url);
+        if(USE_DISK){
+            let json = getTmpJSON(SEEN_TMP_NAME);
+            if( json.includes(url) ) return;
+
+            json.push(url);
+            setTmpJSON(SEEN_TMP_NAME, JSON.stringify(json));
+        }else{
+            if( seen.includes(url) ) return;
+            seen.push(url);
+        }
 
         console.log(url);
 
@@ -220,12 +241,24 @@ const crawl = async function ( url: string|null ) : Promise<any>
             let search: any =  ( doc.window.document.body.innerHTML.match(EMAIL_REGEX) || [] );
             if(search.length > 0) {
                 search.forEach(( email: any )=> {
+
                     let lowermail = cleanEmail(email);
                     if(!isValidEmail(lowermail)) return;
-                    if(!mails.includes(lowermail)){
-                        fs.appendFile( F_NAME, lowermail + '\r\n',()=>0);
-                        mails.push(lowermail);
+
+                    if(USE_DISK){
+                        let _mails = getTmpJSON(MAILS_TMP_NAME);
+                        if(!_mails.includes(lowermail)){
+                            fs.appendFile( F_NAME, lowermail + '\r\n',()=>0);
+                            _mails.push(lowermail);
+                            setTmpJSON(MAILS_TMP_NAME, JSON.stringify(_mails) );
+                        }
+                    }else{
+                        if(!mails.includes(lowermail)){
+                            fs.appendFile( F_NAME, lowermail + '\r\n',()=>0);
+                            mails.push(lowermail);
+                        }
                     }
+
                 } );
             }
         }
@@ -258,6 +291,21 @@ const crawl = async function ( url: string|null ) : Promise<any>
     
 }
 
+// file handlers if "use-disk" options
+const getTmpJSON = function (f_name: string): any
+{
+    
+    let _data = fs.readFileSync(f_name,{encoding:'utf8'});
+
+    return JSON.parse(_data);
+
+}
+const setTmpJSON = function (f_name: string, content: string) : boolean
+{
+    fs.writeFileSync( f_name, content,{ flag:'w' } );
+
+    return true;
+}
 
 const isMemoryAvailable = function(): boolean 
 {
@@ -289,6 +337,7 @@ const init = async function () : Promise<void>
         .option('-e, --email','Search for emails')
         .option('-regx, --regex <regex>','Regex to search')
         .option('-img, --image <image>','Path of a image search pattern')
+        .option('-ud, --use-disk','Use disk instead of memory to save temporary data.')
         .option('-o, --output <oputput path>','Output Path','./')
         .option('-er, --error-report','Prints error to the console!')
         .action( async (url,options) => {
@@ -318,6 +367,22 @@ const init = async function () : Promise<void>
 
                 if(options.email) {
                     SEARCH_TYPE.EMAIL = true;
+                }
+
+                if(options.useDisk) {
+                    USE_DISK = true;
+                    SEEN_TMP_NAME  = "tmp/SEEN_" + _URL.host + new Date().getTime() + ".json";
+                    MAILS_TMP_NAME = "tmp/MAILS_" + _URL.host + new Date().getTime() + ".json";
+
+                    fs.mkdir('tmp', { recursive: true }, (err) => {
+                        if (err) throw err;
+                        
+                        [SEEN_TMP_NAME,MAILS_TMP_NAME].forEach( ( f: string ) => {
+                            fs.appendFile( f, JSON.stringify([]), ()=>0);
+                        });
+                    });
+
+
                 }
 
                 if(options.image){

@@ -6,8 +6,6 @@
 
 # Usage
 ```
-Usage: Good-Boy Crawler [options] <url>
-
 CLI to search text or image in a given website!
 
 Arguments:
@@ -19,6 +17,7 @@ Options:
   -e, --email                  Search for emails
   -regx, --regex <regex>       Regex to search
   -img, --image <image>        Path of a image search pattern
+  -ud, --use-disk              Use disk instead of memory to save temporary data.
   -o, --output <oputput path>  Output Path (default: "./")
   -er, --error-report          Prints error to the console!
   -h, --help                   display help for command
