@@ -3,6 +3,7 @@
 import * as v8 from 'v8';
 import * as fs  from 'fs';
 import * as util from 'util';
+import * as mysql from 'mysql';
 import { MongoClient } from 'mongodb';
 import { Command } from 'commander';
 import { XMLParser } from "fast-xml-parser";
@@ -29,7 +30,14 @@ let EMAIL_VALID : RegExp = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/;
 
 let SEARCH_TYPE = { IMAGE: false, TEXT : false , REGEX : false , EMAIL : false };
 let ERROR_REPORTS = false;
+
 let USE_DB = false;
+
+let USE_MYSQL = false;
+let CONN :any = {};
+let sql_query: any = {};
+
+let USE_MONGO = false;
 let MEMORY_CLEARED = 0; 
 
 let seen: string[]  = [];
@@ -38,51 +46,67 @@ let mails: string[] = [];
 let FIILE_TYPES      = ['.pdf','.jpg','.svg','.png','jpeg','.mp3','.mp4','.webp','.webm','.html','.css','.js'];
 let DONT_CRAWL_FILES = ['.jpg','.svg','.png','jpeg','.mp3','.mp4','.webp','.webm','.css'];
 
-/*
-const CON = mysql.createConnection({
-    host:process.env.DATABASE_HOST,
-    user:process.env.DATABASE_USERNAME,
-    password:process.env.DATABASE_PASSWORD,
-    database:process.env.DATABASE_NAME,
-    port:3306
-  });
-*/
-  
-//const query = util.promisify(CON.query).bind(CON);
+
 
 const emptyDB = async function (): Promise<void>
 {
-    const client = await MongoClient.connect(`${process.env.DB_CONN_STRING}`)
-            .catch(err => { console.log(err); });
 
-            if (!client) return;
+    if(USE_MONGO)
+    {
+        const client = await MongoClient.connect(`${process.env.DB_CONN_STRING}`)
+        .catch(err => { console.log(err); });
 
-            try {
+        if (!client) return;
+
+        try {
+
+            const db = client.db(process.env.DB_NAME);
     
-                const db = client.db(process.env.DB_NAME);
-        
-                let _seen_collection = db.collection('seen');
-                let _emails_collection = db.collection('emails');
-        
-                let list = await _emails_collection.find();
-                if(list !== null){
-                    console.log("Making ressult file...")
+            let _seen_collection = db.collection('seen');
+            let _emails_collection = db.collection('emails');
+    
+            let list = await _emails_collection.find();
+            if(list !== null){
+                console.log("Making ressult file from MONGODB");
 
-                    list.forEach((item) => {
-                        fs.appendFile( F_NAME, item.email.toLowerCase() + '\r\n',()=>0);
-                    })
+                list.forEach((item: any) => {
+                    fs.appendFile( F_NAME, item.email.toLowerCase() + '\r\n',()=>0);
+                })
 
-                    console.log("Done processing!");
-                }
-
-                await _seen_collection.drop();
-                await _emails_collection.drop();
-        
-            } catch (err) {
-                console.log(err);
-            } finally {
-                client.close();
+                console.log("Done processing!");
             }
+
+            await _seen_collection.drop();
+            await _emails_collection.drop();
+
+            client.close();
+    
+        } catch (err) {
+            client.close();
+            console.log(err);
+        } 
+
+    }
+
+    if(USE_MYSQL)
+    {
+
+        let _sql = `SELECT * FROM emails`;
+        let list = await sql_query(_sql);
+
+        if(list !== null){
+            console.log("Making ressult file from MYSQL");
+
+            list.forEach((item : any) => {
+                fs.appendFile( F_NAME, item.email.toLowerCase() + '\r\n',()=>0);
+            })
+
+            console.log("Done processing!");
+        }
+
+        CONN.end()
+    }
+    
 
 }
 
@@ -100,9 +124,8 @@ const onProcessExit = async function(): Promise<void>
     if(message.length > 0) console.log("\x1b[44m",'Results: ',message,'\x1b[0m');
     console.log("\x1b[44m",`Execution time : ${TIME} seconds`,`| Memory usage: ${Math.round(MEMORY * 100) / 100} MB | Memory cleared: ${MEMORY_CLEARED}`,'\x1b[0m');
 
-    //CON.end();
-    await emptyDB();
-    
+    if(USE_DB) await emptyDB();
+   
     process.exit();
 
 }
@@ -291,7 +314,7 @@ const crawl = async function ( url: string|null ) : Promise<any>
 
                     if(USE_DB){
                         if( await !isInDB('emails', 'email', lowermail) ){
-                            await putInDB('emails','email',lowermail);
+                            await putInDB('emails','email', lowermail);
                         }                        
                     }else{
                         if(!mails.includes(lowermail)){
@@ -335,94 +358,100 @@ const crawl = async function ( url: string|null ) : Promise<any>
 const isInDB = async function(table : string, field: string, text : string) : Promise<any>
 {
 
+    if(USE_MONGO)
+    {
         const client = await MongoClient.connect(`${process.env.DB_CONN_STRING}`)
-            .catch(err => { console.log(err); });
+        .catch(err => { console.log(err); });
 
-        if (!client) return;
+        if (!client) return ERROR_REPORTS ? console.error('MONGO connect Error:', client) : 0;
 
         try {
 
             const db = client.db(process.env.DB_NAME);
-    
+
             let collection = db.collection(table);
-    
+
             let query = {
                 [field] : text
             }
         
             let res = await collection.findOne(query);
-    
-            return res !== null ? true : false;
-    
-        } catch (err) {
-    
-            console.log(err);
-        } finally {
-    
             client.close();
+
+            return res !== null ? true : false;
+
+        } catch (err) {
+            client.close();
+            if(ERROR_REPORTS) console.log(err);
+        } 
+    }
+
+    if(USE_MYSQL)
+    {
+        let _sql = `SELECT * FROM ${table} WHERE ${field} = '${text}' `;
+
+        try {
+            const rows: any = await sql_query(_sql);
+            return rows.length > 0;
+
+        }catch(err){
+            if(ERROR_REPORTS) console.error("INDB Query Error: " + err);
+            return false;
         }
-    /*
-      let _sql = `SELECT * FROM ${table} WHERE ${field} = '${text}' `;
-
-      try {
-        const rows: any = await query(_sql);
-
-        return rows.length > 0;
-
-      }catch(err){
-        if(ERROR_REPORTS) console.error("INDB Query Error: " + err);
+    }
         
-        return false;
-      }
-      */
+    
       
 }
 
 const putInDB = async function(table : string, field: string, text : string) : Promise<any>
 {
 
-    const client = await MongoClient.connect(`${process.env.DB_CONN_STRING}`)
-            .catch(err => { console.log(err); });
+    if(USE_MONGO)
+    {
+        const client = await MongoClient.connect(`${process.env.DB_CONN_STRING}`)
+        .catch(err => { console.log(err); });
 
-        if (!client) return;
+        if (!client) return ERROR_REPORTS ? console.error('MONGO connect Error:', client) : 0;
 
         try {
 
             const db = client.db(process.env.DB_NAME);
-    
+
             let collection = db.collection(table);
-    
+
             let query = {
                 [field] : text
             }
             
-    
+
             let res = await collection.insertOne(query);
-    
+             client.close();
+
             return res !== null ? true : false;
-    
+
         } catch (err) {
-    
-            console.log(err);
-        } finally {
-    
             client.close();
+            if(ERROR_REPORTS) console.log(err);
+        } 
+    }
+
+    if(USE_MYSQL)
+    {
+        let _sql = `INSERT INTO ${table} ('${field}') VALUES ('${text}')`;
+
+        try {
+            const rows: any = await sql_query(_sql);
+            return rows.length > 0;
+
+        }catch(err){
+            if(ERROR_REPORTS) console.error("INDB Query Error: " + err);
+            return false;
         }
-    /*
-      let _sql = `INSERT INTO ${table} ('${field}') VALUES ('${text}')`;
-
-      try {
-        const rows: any = await query(_sql);
-
-        return rows.length > 0;
-
-      }catch(err){
-        if(ERROR_REPORTS) console.error("INDB Query Error: " + err);
-        
-        return false;
-      }
-      */
-      
+    }
+    
+   
+   
 }
 
 const isMemoryAvailable = function(): boolean 
@@ -442,6 +471,7 @@ const freeUpMemory = function():void
 const init = async function () : Promise<void>
 {
 
+    
     process.setMaxListeners(0);
 
     program
@@ -455,22 +485,21 @@ const init = async function () : Promise<void>
         .option('-e, --email','Search for emails')
         .option('-regx, --regex <regex>','Regex to search')
         .option('-img, --image <image>','Path of a image search pattern')
-        .option('-db, --use-db','Use mysql instead of memory to save temporary data.')
+        .option('-mysql, --use-mysql','Use MySQL instead of memory to save temporary data.')
+        .option('-mongo, --use-mongo','Use MongoDB instead of memory to save temporary data.')
         .option('-o, --output <oputput path>','Output Path','./')
         .option('-er, --error-report','Prints error to the console!')
         .action( async (url,options) => {
         
             try{
 
-                //console.log(options);
-                //return;
-
+                
                 if(!url.endsWith('/')) url += '/';
 
                 _URL = new URL(url);
                 _URL_REGEX = new RegExp( _URL.host + "|" + _URL.href.replace('www.',""),'i'); 
 
-                F_NAME = options.output + _URL.host + _URL.host + new Date().getTime() + ".txt";
+                F_NAME = options.output + _URL.host + "_" + new Date().getTime() + ".txt";
 
                 if(options.errorReport) ERROR_REPORTS = true;
                
@@ -490,8 +519,29 @@ const init = async function () : Promise<void>
                     SEARCH_TYPE.EMAIL = true;
                 }
 
-                if(options.useDb) {
-                    USE_DB = true;                
+                if(options.useMysql) {
+                    if(options.useMongo) return console.log("Cant run MongoDB & MySQL at same time");
+                    USE_DB = true;  
+                    USE_MYSQL = true;       
+
+                    
+                    CONN = mysql.createConnection({
+                        host:process.env.DATABASE_HOST,
+                        user:process.env.DATABASE_USERNAME,
+                        password:process.env.DATABASE_PASSWORD,
+                        database:process.env.DATABASE_NAME,
+                        port:3306
+                    });
+                
+                
+                    sql_query = util.promisify(CONN.query).bind(CONN);
+                    
+                    
+                }
+                if(options.useMongo){
+                    if(options.useMysql) return console.log("Cant run MongoDB & MySQL at same time");
+                    USE_DB  = true; 
+                    USE_MONGO = true; 
                 }
 
                 if(options.image){
