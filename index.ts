@@ -2,10 +2,14 @@
 
 import * as v8 from 'v8';
 import * as fs  from 'fs';
+import * as util from 'util';
+import { MongoClient } from 'mongodb';
 import { Command } from 'commander';
 import { XMLParser } from "fast-xml-parser";
 import { JSDOM }  from "jsdom";
 import * as Jimp from "jimp";
+import * as dotenv from 'dotenv';
+dotenv.config();
 
 const program: Command = new Command();
 const Xparser: XMLParser = new XMLParser();
@@ -25,20 +29,64 @@ let EMAIL_VALID : RegExp = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/;
 
 let SEARCH_TYPE = { IMAGE: false, TEXT : false , REGEX : false , EMAIL : false };
 let ERROR_REPORTS = false;
-let USE_DISK = false;
-let KEEP_TMP = false;
+let USE_DB = false;
 let MEMORY_CLEARED = 0; 
 
-let seen: string[] = [];
-let SEEN_TMP_NAME: string;
+let seen: string[]  = [];
 let mails: string[] = [];
-let MAILS_TMP_NAME: string;
 
-let FIILE_TYPES = ['.pdf','.jpg','.svg','.png','jpeg','.mp3','.mp4','.webp','.webm','.html','.css','.js'];
+let FIILE_TYPES      = ['.pdf','.jpg','.svg','.png','jpeg','.mp3','.mp4','.webp','.webm','.html','.css','.js'];
 let DONT_CRAWL_FILES = ['.jpg','.svg','.png','jpeg','.mp3','.mp4','.webp','.webm','.css'];
 
+/*
+const CON = mysql.createConnection({
+    host:process.env.DATABASE_HOST,
+    user:process.env.DATABASE_USERNAME,
+    password:process.env.DATABASE_PASSWORD,
+    database:process.env.DATABASE_NAME,
+    port:3306
+  });
+*/
+  
+//const query = util.promisify(CON.query).bind(CON);
 
-const onProcessExit = function():void
+const emptyDB = async function (): Promise<void>
+{
+    const client = await MongoClient.connect(`${process.env.DB_CONN_STRING}`)
+            .catch(err => { console.log(err); });
+
+            if (!client) return;
+
+            try {
+    
+                const db = client.db(process.env.DB_NAME);
+        
+                let _seen_collection = db.collection('seen');
+                let _emails_collection = db.collection('emails');
+        
+                let list = await _emails_collection.find();
+                if(list !== null){
+                    console.log("Making ressult file...")
+
+                    list.forEach((item) => {
+                        fs.appendFile( F_NAME, item.email.toLowerCase() + '\r\n',()=>0);
+                    })
+
+                    console.log("Done processing!");
+                }
+
+                await _seen_collection.drop();
+                await _emails_collection.drop();
+        
+            } catch (err) {
+                console.log(err);
+            } finally {
+                client.close();
+            }
+
+}
+
+const onProcessExit = async function(): Promise<void>
 {
     TIME = ( ( new Date().getTime() - TIME ) / 1000);
     const MEMORY = process.memoryUsage().heapUsed / 1024 / 1024;
@@ -46,18 +94,15 @@ const onProcessExit = function():void
     let message: string = "";
 
     if(SEARCH_TYPE.EMAIL){
-        let _mails = USE_DISK ? getTmpJSON(MAILS_TMP_NAME) : mails;
-        message += `[ Emails:${_mails.length} ]`;
+        message += `[ Emails:${mails.length} ]`;
     }
-
-    if(USE_DISK){
-        if(!KEEP_TMP) [SEEN_TMP_NAME,MAILS_TMP_NAME].forEach( (f_name: string) => fs.unlinkSync(f_name) );
-    }
-    
 
     if(message.length > 0) console.log("\x1b[44m",'Results: ',message,'\x1b[0m');
     console.log("\x1b[44m",`Execution time : ${TIME} seconds`,`| Memory usage: ${Math.round(MEMORY * 100) / 100} MB | Memory cleared: ${MEMORY_CLEARED}`,'\x1b[0m');
 
+    //CON.end();
+    await emptyDB();
+    
     process.exit();
 
 }
@@ -66,23 +111,23 @@ process.on('SIGINT',onProcessExit);
 process.on('exit',onProcessExit);
 
 
-const formatURL = function (path: any): any
+const formatURL = function (_path: any): any
 {
 
-    if( DONT_CRAWL_FILES.some( type => path.endsWith(type) ) ) return;
+    if( DONT_CRAWL_FILES.some( type => _path.endsWith(type) ) ) return;
 
-    if (path.startsWith("https://") || path.startsWith("http://") ){
-        if(path.search(_URL_REGEX) > -1) return path;
+    if (_path.startsWith("https://") || _path.startsWith("http://") ){
+        if(_path.search(_URL_REGEX) > -1) return _path;
         return;
     }
 
-    if(path.startsWith('./'))  path.replace('./',"");
-    if(path.startsWith('../')) path.replace('../',"");
-    if(!path.startsWith('/'))  path.unshift("/");
+    if(_path.startsWith('./'))  _path.replace('./',"");
+    if(_path.startsWith('../')) _path.replace('../',"");
+    if(!_path.startsWith('/'))  _path = "/" + _path;
 
     
         
-    return _URL + path;
+    return _URL + _path;
 
 }
 
@@ -147,6 +192,7 @@ const handleSitemap = async function (url : string)
 
 const handleSitemapIndex = async function(file : string)
 {
+    
     try{
 
         let xml = Xparser.parse(file);
@@ -166,12 +212,12 @@ const handleSitemapIndex = async function(file : string)
     
 
 }
-const imageIsSupported = async function(path: string): Promise<boolean> 
+const imageIsSupported = async function(_path: string): Promise<boolean> 
 {
 
     let imageTypes = ['.jpg','.png'];
     
-    return imageTypes.some(type => path.endsWith(type));
+    return imageTypes.some(type => _path.endsWith(type));
 
 }
 const cleanEmail = function(email: any): string
@@ -207,12 +253,9 @@ const crawl = async function ( url: string|null ) : Promise<any>
 
         if(!url) return;
 
-        if(USE_DISK){
-            let json = getTmpJSON(SEEN_TMP_NAME);
-            if( json.includes(url) ) return;
-
-            json.push(url);
-            setTmpJSON(SEEN_TMP_NAME, JSON.stringify(json));
+        if(USE_DB){
+            if( await isInDB('seen', 'url', url) ) return;
+            await putInDB('seen', 'url', url);
         }else{
             if( seen.includes(url) ) return;
             seen.push(url);
@@ -241,21 +284,18 @@ const crawl = async function ( url: string|null ) : Promise<any>
         if(SEARCH_TYPE.EMAIL){
             let search: any =  ( doc.window.document.body.innerHTML.match(EMAIL_REGEX) || [] );
             if(search.length > 0) {
-                search.forEach(( email: any )=> {
+                search.forEach(async ( email: any )=> {
 
                     let lowermail = cleanEmail(email);
                     if(!isValidEmail(lowermail)) return;
 
-                    if(USE_DISK){
-                        let _mails = getTmpJSON(MAILS_TMP_NAME);
-                        if(!_mails.includes(lowermail)){
-                            fs.appendFile( F_NAME, lowermail + '\r\n',()=>0);
-                            _mails.push(lowermail);
-                            setTmpJSON(MAILS_TMP_NAME, JSON.stringify(_mails) );
-                        }
+                    if(USE_DB){
+                        if( await !isInDB('emails', 'email', lowermail) ){
+                            await putInDB('emails','email',lowermail);
+                        }                        
                     }else{
                         if(!mails.includes(lowermail)){
-                            fs.appendFile( F_NAME, lowermail + '\r\n',()=>0);
+                            fs.appendFile( F_NAME, `${lowermail} \r\n`,()=>0);
                             mails.push(lowermail);
                         }
                     }
@@ -292,20 +332,97 @@ const crawl = async function ( url: string|null ) : Promise<any>
     
 }
 
-// file handlers if "use-disk" options
-const getTmpJSON = function (f_name: string): any
+const isInDB = async function(table : string, field: string, text : string) : Promise<any>
 {
+
+        const client = await MongoClient.connect(`${process.env.DB_CONN_STRING}`)
+            .catch(err => { console.log(err); });
+
+        if (!client) return;
+
+        try {
+
+            const db = client.db(process.env.DB_NAME);
     
-    let _data = fs.readFileSync(f_name,{encoding:'utf8'});
+            let collection = db.collection(table);
+    
+            let query = {
+                [field] : text
+            }
+        
+            let res = await collection.findOne(query);
+    
+            return res !== null ? true : false;
+    
+        } catch (err) {
+    
+            console.log(err);
+        } finally {
+    
+            client.close();
+        }
+    /*
+      let _sql = `SELECT * FROM ${table} WHERE ${field} = '${text}' `;
 
-    return JSON.parse(_data);
+      try {
+        const rows: any = await query(_sql);
 
+        return rows.length > 0;
+
+      }catch(err){
+        if(ERROR_REPORTS) console.error("INDB Query Error: " + err);
+        
+        return false;
+      }
+      */
+      
 }
-const setTmpJSON = function (f_name: string, content: string) : boolean
-{
-    fs.writeFileSync( f_name, content,{ flag:'w' } );
 
-    return true;
+const putInDB = async function(table : string, field: string, text : string) : Promise<any>
+{
+
+    const client = await MongoClient.connect(`${process.env.DB_CONN_STRING}`)
+            .catch(err => { console.log(err); });
+
+        if (!client) return;
+
+        try {
+
+            const db = client.db(process.env.DB_NAME);
+    
+            let collection = db.collection(table);
+    
+            let query = {
+                [field] : text
+            }
+            
+    
+            let res = await collection.insertOne(query);
+    
+            return res !== null ? true : false;
+    
+        } catch (err) {
+    
+            console.log(err);
+        } finally {
+    
+            client.close();
+        }
+    /*
+      let _sql = `INSERT INTO ${table} ('${field}') VALUES ('${text}')`;
+
+      try {
+        const rows: any = await query(_sql);
+
+        return rows.length > 0;
+
+      }catch(err){
+        if(ERROR_REPORTS) console.error("INDB Query Error: " + err);
+        
+        return false;
+      }
+      */
+      
 }
 
 const isMemoryAvailable = function(): boolean 
@@ -338,20 +455,22 @@ const init = async function () : Promise<void>
         .option('-e, --email','Search for emails')
         .option('-regx, --regex <regex>','Regex to search')
         .option('-img, --image <image>','Path of a image search pattern')
-        .option('-ud, --use-disk','Use disk instead of memory to save temporary data.')
+        .option('-db, --use-db','Use mysql instead of memory to save temporary data.')
         .option('-o, --output <oputput path>','Output Path','./')
-        .option('-keep, --keep-tmp', 'Keep temporary files')
         .option('-er, --error-report','Prints error to the console!')
         .action( async (url,options) => {
         
             try{
+
+                //console.log(options);
+                //return;
 
                 if(!url.endsWith('/')) url += '/';
 
                 _URL = new URL(url);
                 _URL_REGEX = new RegExp( _URL.host + "|" + _URL.href.replace('www.',""),'i'); 
 
-                F_NAME = options.output + _URL.host + new Date().getTime() + ".txt";
+                F_NAME = options.output + _URL.host + _URL.host + new Date().getTime() + ".txt";
 
                 if(options.errorReport) ERROR_REPORTS = true;
                
@@ -371,23 +490,8 @@ const init = async function () : Promise<void>
                     SEARCH_TYPE.EMAIL = true;
                 }
 
-                if(options.useDisk) {
-
-                    if(options.keepTmp) KEEP_TMP = true;
-
-                    USE_DISK = true;
-                    SEEN_TMP_NAME  = "tmp/SEEN_" + _URL.host + new Date().getTime() + ".json";
-                    MAILS_TMP_NAME = "tmp/MAILS_" + _URL.host + new Date().getTime() + ".json";
-
-                    fs.mkdir('tmp', { recursive: true }, (err) => {
-                        if (err) throw err;
-
-                        [SEEN_TMP_NAME,MAILS_TMP_NAME].forEach( ( f: string ) => {
-                            fs.appendFile( f, JSON.stringify([]), ()=>0);
-                        });
-                    });
-
-
+                if(options.useDb) {
+                    USE_DB = true;                
                 }
 
                 if(options.image){
@@ -411,6 +515,9 @@ const init = async function () : Promise<void>
             }
 
         }).parse();
+
+        //let resp = await query("INSERT INTO seen ('url') VALUES ('yyeyeyeyyeyeyeyeyeyeyeyeyeyyeyeyeye')");
+        //console.log(resp);
 
     return await getSitemap();
     
