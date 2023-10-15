@@ -11,19 +11,20 @@ Usage: Good-Boy Crawler [options] <url>
 CLI to search text or image in a given website!
 
 Arguments:
-  url                          URL to Crawl
+  url                           URL to Crawl
 
 Options:
-  -V, --version                output the version number
-  -q, --query <query>          Search query string
-  -e, --email                  Search for emails
-  -regx, --regex <regex>       Regex to search
-  -img, --image <image>        Path of a image search pattern
-  -mysql, --use-mysql          Use MySQL instead of memory to save temporary data.
-  -mongo, --use-mongo          Use MongoDB instead of memory to save temporary data.
-  -o, --output <oputput path>  Output Path (default: "./")
-  -er, --error-report          Prints error to the console!
-  -h, --help                   display help for command
+  -V, --version                 output the version number
+  -q, --query <query>           Search query string
+  -e, --email                   Search for emails
+  -regx, --regex <regex>        Regex to search
+  -img, --image <image>         Path of a image search pattern
+  -mysql, --use-mysql           Use MySQL instead of memory to save temporary data.
+  -mongo, --use-mongo           Use MongoDB instead of memory to save temporary data.
+  -o, --output <oputput path>   Output Path (default: "./")
+  -t, --timeout <milliseconds>  Maximum /page crawling time
+  -er, --error-report           Prints error to the console!
+  -h, --help                    display help for command
   
 ```
 

@@ -51,10 +51,6 @@ const onProcessExit = async function(): Promise<void>
     const MEMORY = process.memoryUsage().heapUsed / 1024 / 1024;
 
 
-    if(SEARCH_TYPE.EMAIL){
-        console.log("\x1b[44m",'Results: ', `[ Emails: ${mails.length} ]` ,'\x1b[0m');
-    }
-
     console.log("\x1b[44m",`Execution time : ${TIME} seconds`,`| Memory usage: ${Math.round(MEMORY * 100) / 100} MB | Memory cleared: ${MEMORY_CLEARED}`,'\x1b[0m');
 
     //if(USE_DB) await DB.emptyDB();
@@ -96,7 +92,7 @@ const getSitemap = async function (): Promise<void>
         if(!response.ok) throw new Error('No robots.txt found!');
         const content = await response.text();
         console.log('Found robots.txt');
-        let _arr = content.split("\n").filter(l => l.trim().startsWith('Sitemap') || l.trim().startsWith('sitemap') );
+        const _arr = content.split("\n").filter(l => l.trim().startsWith('Sitemap') || l.trim().startsWith('sitemap') );
 
         if(_arr.length === 0) throw new Error('No Sitemap file found!');
 
@@ -122,9 +118,9 @@ const handleSitemap = async function (url : string)
 {
     try{
 
-        let response = await fetch(url,FETCH_OPTIONS);
-        let file = await response.text();
-        let xml = Xparser.parse(file);
+        const response = await fetch(url,FETCH_OPTIONS);
+        const file = await response.text();
+        const xml = Xparser.parse(file);
 
         if(xml.sitemapindex) return handleSitemapIndex(file);
 
@@ -150,7 +146,7 @@ const handleSitemapIndex = async function(file : string)
     
     try{
 
-        let xml = Xparser.parse(file);
+        const xml = Xparser.parse(file);
 
         if(Array.isArray(xml.sitemapindex.sitemap)){
             xml.sitemapindex.sitemap.forEach( async( l: any ) => await handleSitemap(l.loc) );
@@ -218,35 +214,34 @@ const crawl = async function ( url: string|null ) : Promise<any>
 
             setTimeout( reject, MAX_CRAWL_TIME);
 
-            let resp = await fetch(url,FETCH_OPTIONS);
-            let html = await resp.text();
+            const resp = await fetch(url,FETCH_OPTIONS);
+            const html = await resp.text();
 
-            let doc: any = new JSDOM(html);
+            const doc: any = new JSDOM(html);
 
             if(SEARCH_TYPE.TEXT){
-                let search: any = ( doc.window.document.body.textContent.match(QUERY) || [] );
+                const search: any = ( doc.window.document.body.textContent.match(QUERY) || [] );
                 if(search.length > 0) fs.appendFile( F_NAME, `TEXT MATCH: ${search.length} | URL: ${url}  \r\n`, ()=>0);
             }
 
             if(SEARCH_TYPE.REGEX){
-                let search: any =  ( doc.window.document.body.textContent.match(REGEX) || [] );
+                const search: any =  ( doc.window.document.body.textContent.match(REGEX) || [] );
                 if(search.length > 0) {
                     search.forEach(( s: any ) => fs.appendFile( F_NAME, s + '\r\n',()=>0) );
                 }
             }
 
             if(SEARCH_TYPE.EMAIL){
-                let search: any =  ( doc.window.document.body.innerHTML.match(EMAIL_REGEX) || [] );
+                const search: any =  ( doc.window.document.body.innerHTML.match(EMAIL_REGEX) || [] );
                 if(search.length > 0) {
                     search.forEach(async ( email: any )=> {
 
-                        let lowermail = cleanEmail(email);
+                        const lowermail = cleanEmail(email);
                         if(!isValidEmail(lowermail)) return;
 
                         if(USE_DB){
-                            if( await !DB.isInDB('found', 'found', lowermail) ){
-                                await DB.putInDB('found','found', lowermail);
-                            }
+                            const exist = await DB.isInDB('found', 'found', lowermail);
+                            if (!exist) await DB.putInDB('found','found', lowermail);
                         }else{
                             if(!mails.includes(lowermail)){
                                 fs.appendFile( F_NAME, `${lowermail} \r\n`,()=>0);
@@ -254,21 +249,22 @@ const crawl = async function ( url: string|null ) : Promise<any>
                             }
                         }
 
-                    } );
+                    });
                 }
             }
 
             if(SEARCH_TYPE.IMAGE){
-                let images = doc.window.document.querySelectorAll('img');
+                const images = doc.window.document.querySelectorAll('img');
                 images.forEach( async ( i: any ) => {
 
                     try{
-                        let src = formatURL(i.src);
-                        let image = await Jimp.read(src);
+                        const src = formatURL(i.src);
+                        const image = await Jimp.read(src);
 
                         if( Jimp.diff(OG_IMAGE,image).percent <= 0.25 ){
                             fs.appendFile( F_NAME, `SIMILAR IMAGE: ${(Jimp.diff(OG_IMAGE,image).percent * 100) + "%"} \r\n   SRC: ${src}  \r\n   URL: ${url}  \r\n`,()=>0);
                         }
+
                     }catch(err){
                         if(ERROR_REPORTS) console.log('* Image diff error!');
                     }
@@ -276,7 +272,7 @@ const crawl = async function ( url: string|null ) : Promise<any>
                 });
             }
 
-            let anchors = doc.window.document.querySelectorAll('a');
+            const anchors = doc.window.document.querySelectorAll('a');
             if(anchors.length > 0) anchors.forEach( async ( a: any ) => await crawl(a.href) );
 
         }catch(err){
@@ -290,7 +286,7 @@ const crawl = async function ( url: string|null ) : Promise<any>
 
 const isMemoryAvailable = function(): boolean 
 {
-    let heap = v8.getHeapStatistics();
+    const heap = v8.getHeapStatistics();
 
     return heap.used_heap_size < ( heap.heap_size_limit - 50000 );
 }
@@ -319,9 +315,10 @@ const init = async function () : Promise<void>
         .option('-e, --email','Search for emails')
         .option('-regx, --regex <regex>','Regex to search')
         .option('-img, --image <image>','Path of a image search pattern')
-        .option('-mysql, --use-mysql','Use MySQL instead of memory to save temporary data.')
+        // .option('-mysql, --use-mysql','Use MySQL instead of memory to save temporary data.')
         .option('-mongo, --use-mongo','Use MongoDB instead of memory to save temporary data.')
         .option('-o, --output <oputput path>','Output Path','./')
+        .option('-t, --timeout <milliseconds>','Maximum /page crawling time')
         .option('-er, --error-report','Prints error to the console!')
         .action( async (url,options) => {
         
@@ -336,6 +333,8 @@ const init = async function () : Promise<void>
                 F_NAME = options.output + _URL.host + "_" + new Date().getTime() + ".txt";
 
                 if(options.errorReport) ERROR_REPORTS = true;
+
+                if(options.timeout > 0) MAX_CRAWL_TIME = options.timeout as number;
                
                 if(!options.query && !options.regex && !options.image && !options.email ) return console.log('Please giva search query (-q) or path of a image-pattern (-img)!');
 
@@ -353,24 +352,24 @@ const init = async function () : Promise<void>
                     SEARCH_TYPE.EMAIL = true;
                 }
 
-                if(options.useMysql) {
-                    if(options.useMongo) return console.log("Cant run MongoDB & MySQL at same time");
-                    USE_DB = true;
-                    DB = new MySQL();
-                    await DB.init({
-                        config: {
-                            host:process.env.DATABASE_HOST,
-                            user:process.env.DATABASE_USERNAME,
-                            password:process.env.DATABASE_PASSWORD,
-                            port:process.env.DATABASE_PORT
-                        },
-                        url: _URL.host,
-                        errorReport: ERROR_REPORTS,
-                    });
-
-                    // sql_query = util.promisify(CONN.query).bind(CONN);
-
-                }
+                // if(options.useMysql) {
+                //     if(options.useMongo) return console.log("Cant run MongoDB & MySQL at same time");
+                //     USE_DB = true;
+                //     DB = new MySQL();
+                //     await DB.init({
+                //         config: {
+                //             host:process.env.DATABASE_HOST,
+                //             user:process.env.DATABASE_USERNAME,
+                //             password:process.env.DATABASE_PASSWORD,
+                //             port:process.env.DATABASE_PORT
+                //         },
+                //         url: _URL.host,
+                //         errorReport: ERROR_REPORTS,
+                //     });
+                //
+                //     // sql_query = util.promisify(CONN.query).bind(CONN);
+                //
+                // }
                 if(options.useMongo){
                     if(options.useMysql) return console.log("Cant run MongoDB & MySQL at same time");
                     USE_DB = true;
