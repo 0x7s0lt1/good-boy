@@ -11,6 +11,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@huggingface/inference": "^2.6.3",
     "@types/jsdom": "^20.0.0",
     "@types/n-readlines": "^1.0.3",
     "commander": "^9.4.1",

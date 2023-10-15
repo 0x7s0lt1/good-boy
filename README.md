@@ -1,7 +1,7 @@
 <div align="center">
 <img src="https://media.tenor.com/IUOroMLMNzgAAAAM/costume-funny.gif">
 <h1>Good Boooy</h1>
-<p>Web Scraper<p>
+<p>Web Crawler<p>
 </div>
 
 # Usage
@@ -19,13 +19,14 @@ Options:
   -e, --email                  Search for emails
   -regx, --regex <regex>       Regex to search
   -img, --image <image>        Path of a image search pattern
-  -ud, --use-disk              Use disk instead of memory to save temporary data.
+  -mysql, --use-mysql          Use MySQL instead of memory to save temporary data.
+  -mongo, --use-mongo          Use MongoDB instead of memory to save temporary data.
   -o, --output <oputput path>  Output Path (default: "./")
-  -keep, --keep-tmp            Keep temporary files
   -er, --error-report          Prints error to the console!
   -h, --help                   display help for command
   
 ```
+
 # Example
 ### Commands
 Looking for email addresses

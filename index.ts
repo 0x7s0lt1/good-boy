@@ -3,8 +3,9 @@
 import * as v8 from 'v8';
 import * as fs  from 'fs';
 import * as util from 'util';
-import * as mysql from 'mysql';
-import { MongoClient } from 'mongodb';
+import DatabaseInterface from "./modules/databaseInterface";
+import MySQL from "./modules/mySQL";
+import MongoDB from './modules/mongoDB';
 import { Command } from 'commander';
 import { XMLParser } from "fast-xml-parser";
 import { JSDOM }  from "jsdom";
@@ -15,9 +16,10 @@ dotenv.config();
 const program: Command = new Command();
 const Xparser: XMLParser = new XMLParser();
 
-const FETCH_OPTIONS = { headers: { "User-Agent" : "Good-Boy" } };
+const FETCH_OPTIONS = { headers: { "User-Agent" : "g00d-b0y" } };
 
 let TIME: number = new Date().getTime();
+let MAX_CRAWL_TIME: number = 60000;
 
 let _URL: URL;
 let _URL_REGEX: RegExp;
@@ -25,106 +27,37 @@ let QUERY: RegExp;
 let REGEX: RegExp;
 let F_NAME: string;
 let OG_IMAGE: any;
-let EMAIL_REGEX: RegExp = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/gi; 
-let EMAIL_VALID : RegExp = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/;
+const EMAIL_REGEX: RegExp = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/gi;
+const EMAIL_VALID : RegExp = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/;
 
-let SEARCH_TYPE = { IMAGE: false, TEXT : false , REGEX : false , EMAIL : false };
+const SEARCH_TYPE = { IMAGE: false, TEXT : false , REGEX : false , EMAIL : false };
 let ERROR_REPORTS = false;
 
-let USE_DB = false;
+let USE_DB: boolean = false;
+let DB: DatabaseInterface;
 
-let USE_MYSQL = false;
-let CONN :any = {};
-let sql_query: any = {};
-
-let USE_MONGO = false;
 let MEMORY_CLEARED = 0; 
 
 let seen: string[]  = [];
 let mails: string[] = [];
 
-let FIILE_TYPES      = ['.pdf','.jpg','.svg','.png','jpeg','.mp3','.mp4','.webp','.webm','.html','.css','.js'];
-let DONT_CRAWL_FILES = ['.jpg','.svg','.png','jpeg','.mp3','.mp4','.webp','.webm','.css'];
+const FIILE_TYPES      = ['.pdf','.jpg','.svg','.png','jpeg','.mp3','.mp4','.webp','.webm','.html','.css','.js'];
+const DONT_CRAWL_FILES = ['.jpg','.svg','.png','jpeg','.mp3','.mp4','.webp','.webm','.css'];
 
-
-
-const emptyDB = async function (): Promise<void>
-{
-
-    if(USE_MONGO)
-    {
-        const client = await MongoClient.connect(`${process.env.DB_CONN_STRING}`)
-        .catch(err => { console.log(err); });
-
-        if (!client) return;
-
-        try {
-
-            const db = client.db(process.env.DB_NAME);
-    
-            let _seen_collection = db.collection('seen');
-            let _emails_collection = db.collection('emails');
-    
-            let list = await _emails_collection.find();
-            if(list !== null){
-                console.log("Making ressult file from MONGODB");
-
-                list.forEach((item: any) => {
-                    fs.appendFile( F_NAME, item.email.toLowerCase() + '\r\n',()=>0);
-                })
-
-                console.log("Done processing!");
-            }
-
-            await _seen_collection.drop();
-            await _emails_collection.drop();
-
-            client.close();
-    
-        } catch (err) {
-            client.close();
-            console.log(err);
-        } 
-
-    }
-
-    if(USE_MYSQL)
-    {
-
-        let _sql = `SELECT * FROM emails`;
-        let list = await sql_query(_sql);
-
-        if(list !== null){
-            console.log("Making ressult file from MYSQL");
-
-            list.forEach((item : any) => {
-                fs.appendFile( F_NAME, item.email.toLowerCase() + '\r\n',()=>0);
-            })
-
-            console.log("Done processing!");
-        }
-
-        CONN.end()
-    }
-    
-
-}
 
 const onProcessExit = async function(): Promise<void>
 {
     TIME = ( ( new Date().getTime() - TIME ) / 1000);
     const MEMORY = process.memoryUsage().heapUsed / 1024 / 1024;
 
-    let message: string = "";
 
     if(SEARCH_TYPE.EMAIL){
-        message += `[ Emails:${mails.length} ]`;
+        console.log("\x1b[44m",'Results: ', `[ Emails: ${mails.length} ]` ,'\x1b[0m');
     }
 
-    if(message.length > 0) console.log("\x1b[44m",'Results: ',message,'\x1b[0m');
     console.log("\x1b[44m",`Execution time : ${TIME} seconds`,`| Memory usage: ${Math.round(MEMORY * 100) / 100} MB | Memory cleared: ${MEMORY_CLEARED}`,'\x1b[0m');
 
-    if(USE_DB) await emptyDB();
+    //if(USE_DB) await DB.emptyDB();
    
     process.exit();
 
@@ -139,8 +72,8 @@ const formatURL = function (_path: any): any
 
     if( DONT_CRAWL_FILES.some( type => _path.endsWith(type) ) ) return;
 
-    if (_path.startsWith("https://") || _path.startsWith("http://") ){
-        if(_path.search(_URL_REGEX) > -1) return _path;
+    if( ["https://","http://"].some( ( p: string ) => _path.startsWith(p) ) ){
+        if( new URL(_path).host.search( _URL_REGEX ) > -1 ) return _path;
         return;
     }
 
@@ -148,8 +81,7 @@ const formatURL = function (_path: any): any
     if(_path.startsWith('../')) _path.replace('../',"");
     if(!_path.startsWith('/'))  _path = "/" + _path;
 
-    
-        
+
     return _URL + _path;
 
 }
@@ -160,11 +92,11 @@ const getSitemap = async function (): Promise<void>
 
     try{
 
-        let response = await fetch(_URL.href + "robots.txt",FETCH_OPTIONS);
+        const response = await fetch(_URL.href + "robots.txt",FETCH_OPTIONS);
         if(!response.ok) throw new Error('No robots.txt found!');
-        let file = await response.text();
+        const content = await response.text();
         console.log('Found robots.txt');
-        let _arr = file.split("\n").filter(l => l.trim().startsWith('Sitemap') || l.trim().startsWith('sitemap') );
+        let _arr = content.split("\n").filter(l => l.trim().startsWith('Sitemap') || l.trim().startsWith('sitemap') );
 
         if(_arr.length === 0) throw new Error('No Sitemap file found!');
 
@@ -179,8 +111,8 @@ const getSitemap = async function (): Promise<void>
         })
 
     }catch(err){
-        if(ERROR_REPORTS) console.log(err);
-        console.log('Start crawling from the index page..');
+        if(ERROR_REPORTS) console.error(err);
+        console.log('Start crawling from the index page...');
         return await crawl(_URL.href);
     }
 
@@ -237,12 +169,9 @@ const handleSitemapIndex = async function(file : string)
 }
 const imageIsSupported = async function(_path: string): Promise<boolean> 
 {
-
-    let imageTypes = ['.jpg','.png'];
-    
-    return imageTypes.some(type => _path.endsWith(type));
-
+    return ['.jpg','.png'].some( type => _path.endsWith(type) );
 }
+
 const cleanEmail = function(email: any): string
 {
     // Maybe better way to check this in the results it can find different types of garbages
@@ -267,192 +196,97 @@ const isValidEmail = function(email: string): boolean
 
 const crawl = async function ( url: string|null ) : Promise<any>
 {
+    return new Promise<any>(async (resolve, reject)=>{
 
-    try{
+        try{
 
-       if( !isMemoryAvailable() ) freeUpMemory();
+            if( !isMemoryAvailable() ) freeUpMemory();
 
-        url = formatURL(url);
+            url = formatURL(url);
 
-        if(!url) return;
+            if(!url) return;
 
-        if(USE_DB){
-            if( await isInDB('seen', 'url', url) ) return;
-            await putInDB('seen', 'url', url);
-        }else{
-            if( seen.includes(url) ) return;
-            seen.push(url);
-        }
-
-        console.log(url);
-
-        let resp = await fetch(url,FETCH_OPTIONS);
-        let html = await resp.text();
-
-        let doc: any = new JSDOM(html);
-        
-    
-        if(SEARCH_TYPE.TEXT){
-            let search: any = ( doc.window.document.body.textContent.match(QUERY) || [] );
-            if(search.length > 0) fs.appendFile( F_NAME, `TEXT MATCH: ${search.length} | URL: ${url}  \r\n`, ()=>0);
-        }
-
-        if(SEARCH_TYPE.REGEX){
-            let search: any =  ( doc.window.document.body.textContent.match(REGEX) || [] );
-            if(search.length > 0) {
-                search.forEach(( s: any ) => fs.appendFile( F_NAME, s + '\r\n',()=>0) );
+            if(USE_DB){
+                if( await DB.isInDB('seen', 'url', url) ) return;
+                await DB.putInDB('seen', 'url', url);
+            }else{
+                if( seen.includes(url) ) return;
+                seen.push(url);
             }
-        }
 
-        if(SEARCH_TYPE.EMAIL){
-            let search: any =  ( doc.window.document.body.innerHTML.match(EMAIL_REGEX) || [] );
-            if(search.length > 0) {
-                search.forEach(async ( email: any )=> {
+            console.log(url);
 
-                    let lowermail = cleanEmail(email);
-                    if(!isValidEmail(lowermail)) return;
+            setTimeout( reject, MAX_CRAWL_TIME);
 
-                    if(USE_DB){
-                        if( await !isInDB('emails', 'email', lowermail) ){
-                            await putInDB('emails','email', lowermail);
-                        }                        
-                    }else{
-                        if(!mails.includes(lowermail)){
-                            fs.appendFile( F_NAME, `${lowermail} \r\n`,()=>0);
-                            mails.push(lowermail);
-                        }
-                    }
+            let resp = await fetch(url,FETCH_OPTIONS);
+            let html = await resp.text();
 
-                } );
+            let doc: any = new JSDOM(html);
+
+            if(SEARCH_TYPE.TEXT){
+                let search: any = ( doc.window.document.body.textContent.match(QUERY) || [] );
+                if(search.length > 0) fs.appendFile( F_NAME, `TEXT MATCH: ${search.length} | URL: ${url}  \r\n`, ()=>0);
             }
-        }
-        
-        if(SEARCH_TYPE.IMAGE){
-            let images = doc.window.document.querySelectorAll('img');
-            images.forEach( async ( i: any ) => {
 
-                try{
-                    let src = formatURL(i.src);
-                    let image = await Jimp.read(src);
-    
-                    if( Jimp.diff(OG_IMAGE,image).percent <= 0.25 ){
-                        fs.appendFile( F_NAME, `SIMILAR IMAGE: ${(Jimp.diff(OG_IMAGE,image).percent * 100) + "%"} \r\n   SRC: ${src}  \r\n   URL: ${url}  \r\n`,()=>0);
-                    }
-                }catch(err){
-                    if(ERROR_REPORTS) console.log('* Image diff error!');
+            if(SEARCH_TYPE.REGEX){
+                let search: any =  ( doc.window.document.body.textContent.match(REGEX) || [] );
+                if(search.length > 0) {
+                    search.forEach(( s: any ) => fs.appendFile( F_NAME, s + '\r\n',()=>0) );
                 }
-            
-            });
-        }
-
-        let anchors = doc.window.document.querySelectorAll('a');
-        if(anchors.length > 0) anchors.forEach( async ( a: any ) => await crawl(a.href) );
-
-    }catch(err){
-        if(ERROR_REPORTS) console.log('* Fetch Error!',err);
-    }
-    
-    
-}
-
-const isInDB = async function(table : string, field: string, text : string) : Promise<any>
-{
-
-    if(USE_MONGO)
-    {
-        const client = await MongoClient.connect(`${process.env.DB_CONN_STRING}`)
-        .catch(err => { console.log(err); });
-
-        if (!client) return ERROR_REPORTS ? console.error('MONGO connect Error:', client) : 0;
-
-        try {
-
-            const db = client.db(process.env.DB_NAME);
-
-            let collection = db.collection(table);
-
-            let query = {
-                [field] : text
             }
-        
-            let res = await collection.findOne(query);
-            client.close();
 
-            return res !== null ? true : false;
+            if(SEARCH_TYPE.EMAIL){
+                let search: any =  ( doc.window.document.body.innerHTML.match(EMAIL_REGEX) || [] );
+                if(search.length > 0) {
+                    search.forEach(async ( email: any )=> {
 
-        } catch (err) {
-            client.close();
-            if(ERROR_REPORTS) console.log(err);
-        } 
-    }
+                        let lowermail = cleanEmail(email);
+                        if(!isValidEmail(lowermail)) return;
 
-    if(USE_MYSQL)
-    {
-        let _sql = `SELECT * FROM ${table} WHERE ${field} = '${text}' `;
+                        if(USE_DB){
+                            if( await !DB.isInDB('found', 'found', lowermail) ){
+                                await DB.putInDB('found','found', lowermail);
+                            }
+                        }else{
+                            if(!mails.includes(lowermail)){
+                                fs.appendFile( F_NAME, `${lowermail} \r\n`,()=>0);
+                                mails.push(lowermail);
+                            }
+                        }
 
-        try {
-            const rows: any = await sql_query(_sql);
-            return rows.length > 0;
+                    } );
+                }
+            }
+
+            if(SEARCH_TYPE.IMAGE){
+                let images = doc.window.document.querySelectorAll('img');
+                images.forEach( async ( i: any ) => {
+
+                    try{
+                        let src = formatURL(i.src);
+                        let image = await Jimp.read(src);
+
+                        if( Jimp.diff(OG_IMAGE,image).percent <= 0.25 ){
+                            fs.appendFile( F_NAME, `SIMILAR IMAGE: ${(Jimp.diff(OG_IMAGE,image).percent * 100) + "%"} \r\n   SRC: ${src}  \r\n   URL: ${url}  \r\n`,()=>0);
+                        }
+                    }catch(err){
+                        if(ERROR_REPORTS) console.log('* Image diff error!');
+                    }
+
+                });
+            }
+
+            let anchors = doc.window.document.querySelectorAll('a');
+            if(anchors.length > 0) anchors.forEach( async ( a: any ) => await crawl(a.href) );
 
         }catch(err){
-            if(ERROR_REPORTS) console.error("INDB Query Error: " + err);
-            return false;
+            if(ERROR_REPORTS) console.log('* Fetch Error!',err);
         }
-    }
-        
+
+    })
     
-      
 }
 
-const putInDB = async function(table : string, field: string, text : string) : Promise<any>
-{
-
-    if(USE_MONGO)
-    {
-        const client = await MongoClient.connect(`${process.env.DB_CONN_STRING}`)
-        .catch(err => { console.log(err); });
-
-        if (!client) return ERROR_REPORTS ? console.error('MONGO connect Error:', client) : 0;
-
-        try {
-
-            const db = client.db(process.env.DB_NAME);
-
-            let collection = db.collection(table);
-
-            let query = {
-                [field] : text
-            }
-            
-
-            let res = await collection.insertOne(query);
-             client.close();
-
-            return res !== null ? true : false;
-
-        } catch (err) {
-            client.close();
-            if(ERROR_REPORTS) console.log(err);
-        } 
-    }
-
-    if(USE_MYSQL)
-    {
-        let _sql = `INSERT INTO ${table} ('${field}') VALUES ('${text}')`;
-
-        try {
-            const rows: any = await sql_query(_sql);
-            return rows.length > 0;
-
-        }catch(err){
-            if(ERROR_REPORTS) console.error("INDB Query Error: " + err);
-            return false;
-        }
-    }
-    
-   
-   
-}
 
 const isMemoryAvailable = function(): boolean 
 {
@@ -521,27 +355,31 @@ const init = async function () : Promise<void>
 
                 if(options.useMysql) {
                     if(options.useMongo) return console.log("Cant run MongoDB & MySQL at same time");
-                    USE_DB = true;  
-                    USE_MYSQL = true;       
-
-                    
-                    CONN = mysql.createConnection({
-                        host:process.env.DATABASE_HOST,
-                        user:process.env.DATABASE_USERNAME,
-                        password:process.env.DATABASE_PASSWORD,
-                        database:process.env.DATABASE_NAME,
-                        port:3306
+                    USE_DB = true;
+                    DB = new MySQL();
+                    await DB.init({
+                        config: {
+                            host:process.env.DATABASE_HOST,
+                            user:process.env.DATABASE_USERNAME,
+                            password:process.env.DATABASE_PASSWORD,
+                            port:process.env.DATABASE_PORT
+                        },
+                        url: _URL.host,
+                        errorReport: ERROR_REPORTS,
                     });
-                
-                
-                    sql_query = util.promisify(CONN.query).bind(CONN);
-                    
-                    
+
+                    // sql_query = util.promisify(CONN.query).bind(CONN);
+
                 }
                 if(options.useMongo){
                     if(options.useMysql) return console.log("Cant run MongoDB & MySQL at same time");
-                    USE_DB  = true; 
-                    USE_MONGO = true; 
+                    USE_DB = true;
+                    DB = new MongoDB();
+                    await DB.init({
+                        url: _URL.host,
+                        connectionString: process.env.MONGO_CONN_STRING,
+                        errorReport: ERROR_REPORTS
+                    })
                 }
 
                 if(options.image){
@@ -556,7 +394,6 @@ const init = async function () : Promise<void>
                     }
                 }
                 
-                
 
             }catch(err){
                 if(ERROR_REPORTS) console.log(err);
@@ -566,8 +403,6 @@ const init = async function () : Promise<void>
 
         }).parse();
 
-        //let resp = await query("INSERT INTO seen ('url') VALUES ('yyeyeyeyyeyeyeyeyeyeyeyeyeyyeyeyeye')");
-        //console.log(resp);
 
     return await getSitemap();
     
