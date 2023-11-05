@@ -9,6 +9,7 @@ import MongoDB from './modules/mongoDB';
 import { Command } from 'commander';
 import { XMLParser } from "fast-xml-parser";
 import { JSDOM }  from "jsdom";
+import { pipeline } from '@xenova/transformers';
 import * as Jimp from "jimp";
 import * as dotenv from 'dotenv';
 dotenv.config();
@@ -203,7 +204,8 @@ const crawl = async function ( url: string|null ) : Promise<any>
             if(!url) return;
 
             if(USE_DB){
-                if( await DB.isInDB('seen', 'url', url) ) return;
+                const exists = await DB.isInDB('seen', 'url', url);
+                if( exists ) return;
                 await DB.putInDB('seen', 'url', url);
             }else{
                 if( seen.includes(url) ) return;
@@ -240,8 +242,13 @@ const crawl = async function ( url: string|null ) : Promise<any>
                         if(!isValidEmail(lowermail)) return;
 
                         if(USE_DB){
+
                             const exist = await DB.isInDB('found', 'found', lowermail);
-                            if (!exist) await DB.putInDB('found','found', lowermail);
+
+                            if (!exist) {
+                                await DB.putInDB('found','found', lowermail)
+                            }
+
                         }else{
                             if(!mails.includes(lowermail)){
                                 fs.appendFile( F_NAME, `${lowermail} \r\n`,()=>0);
@@ -315,7 +322,7 @@ const init = async function () : Promise<void>
         .option('-e, --email','Search for emails')
         .option('-regx, --regex <regex>','Regex to search')
         .option('-img, --image <image>','Path of a image search pattern')
-        // .option('-mysql, --use-mysql','Use MySQL instead of memory to save temporary data.')
+        .option('-mysql, --use-mysql','Use MySQL instead of memory to save temporary data.')
         .option('-mongo, --use-mongo','Use MongoDB instead of memory to save temporary data.')
         .option('-o, --output <oputput path>','Output Path','./')
         .option('-t, --timeout <milliseconds>','Maximum /page crawling time')
@@ -352,26 +359,25 @@ const init = async function () : Promise<void>
                     SEARCH_TYPE.EMAIL = true;
                 }
 
-                // if(options.useMysql) {
-                //     if(options.useMongo) return console.log("Cant run MongoDB & MySQL at same time");
-                //     USE_DB = true;
-                //     DB = new MySQL();
-                //     await DB.init({
-                //         config: {
-                //             host:process.env.DATABASE_HOST,
-                //             user:process.env.DATABASE_USERNAME,
-                //             password:process.env.DATABASE_PASSWORD,
-                //             port:process.env.DATABASE_PORT
-                //         },
-                //         url: _URL.host,
-                //         errorReport: ERROR_REPORTS,
-                //     });
-                //
-                //     // sql_query = util.promisify(CONN.query).bind(CONN);
-                //
-                // }
+                if(options.useMysql) {
+                    if(options.useMongo) return console.log("Can't run MongoDB & MySQL at same time");
+                    USE_DB = true;
+                    DB = new MySQL();
+                    await DB.init({
+                        config: {
+                            host: process.env.DATABASE_HOST,
+                            user: process.env.DATABASE_USERNAME,
+                            password: process.env.DATABASE_PASSWORD,
+                            port: process.env.DATABASE_PORT
+                        },
+                        url: _URL.host,
+                        errorReport: ERROR_REPORTS,
+                    });
+
+                }
+
                 if(options.useMongo){
-                    if(options.useMysql) return console.log("Cant run MongoDB & MySQL at same time");
+                    if(options.useMysql) return console.log("Can't run MongoDB & MySQL at same time");
                     USE_DB = true;
                     DB = new MongoDB();
                     await DB.init({

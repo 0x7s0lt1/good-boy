@@ -3,8 +3,7 @@ import crypto from "crypto";
 import DatabaseInterface from "./databaseInterface";
 //import fs from "fs";
 
-//TODO
-class MondoDB implements DatabaseInterface{
+class MondoDB implements DatabaseInterface {
 
 
     dbName: string = "";
@@ -96,21 +95,31 @@ class MondoDB implements DatabaseInterface{
     }
 
 
-    async isInDB(table : string, field: string, text : string): Promise<boolean>
+    async isInDB(table : string, field: string, text : string): Promise<any>
     {
-        return new Promise<boolean>(async (resolve: any, reject: any) => {
+        return new Promise<any>(async (resolve: any, reject: any) => {
             try {
 
                 const db = this.client.db(this.dbName);
                 const collection = db.collection(table);
+                // const query = { [field] : text };
                 const query = { [field] : text };
 
                 const res = await collection.findOne(query);
 
-                resolve(res !== null);
+                if(field == "found"){
+                    console.log(res,text,query);
+                }
+
+                resolve(res != null);
 
             } catch (err) {
                 if( this.errorReport ) console.error(err);
+
+                if(field == "found"){
+                    console.error(err)
+                }
+
                 reject(false);
             }
         })

@@ -25,6 +25,7 @@ Options:
   -t, --timeout <milliseconds>  Maximum /page crawling time
   -er, --error-report           Prints error to the console!
   -h, --help                    display help for command
+
   
 ```
 

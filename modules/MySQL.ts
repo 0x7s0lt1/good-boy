@@ -1,57 +1,66 @@
 import * as mysql from 'mysql';
+import * as util from 'util';
 import crypto from "crypto";
 import DatabaseInterface from "./databaseInterface";
 //import fs from "fs";
 
-class MySQL implements DatabaseInterface{
+class MySQL implements DatabaseInterface {
 
-    dbName:string = "";
-    errorReport:boolean = false;
+    dbName: string = "good-boy";
+    errorReport: boolean = false;
     connection: any = null;
+    query: any = null;
 
 
     async init( options: any ) {
 
         return new Promise<any>(async (resolve: any, reject : any) => {
 
-            this.dbName = `gb-${ options.url.replace(".","-") }-${ crypto.randomUUID() }`;
+            this.dbName = `gb_${ options.url.replace(".","_") }_${ crypto.randomUUID().replaceAll("-","_") }`;
             this.errorReport = options.errorReport;
 
             try{
 
-                this.connection = mysql.createConnection(options.config);
+                this.connection = await mysql.createConnection(options.config);
+                this.query = util.promisify(this.connection.query).bind(this.connection);
 
-                this.connection.connect( (err: any) => {
+                this.connection.connect( async (err: any) => {
+
                     if (err) {
-                        console.error(err);
-                        throw err
+                        console.error('Error connecting to MySQL:', err);
+                        throw err;
                     };
-                    this.connection.query(`CREATE DATABASE ${this.dbName}`, (err: any, result: any) => {
-                        if (err) throw err;
-                        console.log("MYSQL Database created: ", this.dbName);
+
+                    await this.query(`CREATE DATABASE ${this.dbName}`);
+
+                    console.log("MYSQL Database created.");
+
+                    this.connection.end();
+
+                    options.config.database = this.dbName;
+
+                    this.connection = mysql.createConnection(options.config);
+                    this.query = util.promisify(this.connection.query).bind(this.connection);
+
+                    this.connection.connect( async (err: any) => {
+
+                       try {
+                           await this.query("CREATE TABLE seen (id INT NOT NULL AUTO_INCREMENT, url VARCHAR(255), PRIMARY KEY (id) )");
+                           await this.query("CREATE TABLE found (id INT NOT NULL AUTO_INCREMENT, found VARCHAR(255), at VARCHAR(255), PRIMARY KEY (id) )");
+                       }catch (err){
+                           if (this.errorReport) console.error(err);
+                           reject();
+                       }
+
+                        console.log("MYSQL Tables created.");
+
                     });
+
+                    resolve();
+
                 });
 
-                this.connection.end();
 
-                options.config.database = this.dbName;
-
-                this.connection = mysql.createConnection(options.config);
-
-                this.connection.connect( (err: any) => {
-                    if (err) throw err;
-                    const seen_create_query  = "CREATE TABLE seen (id INT NOT NULL AUTO_INCREMENT, url VARCHAR(255) PRIMARY KEY (id) )";
-                    const found_create_query = "CREATE TABLE found (id INT NOT NULL AUTO_INCREMENT, found VARCHAR(255), at VARCHAR(255) PRIMARY KEY (id) )";
-                    this.connection.query(seen_create_query,(err: any , result: any) => {
-                        if (err) throw err;
-                        this.connection.query(found_create_query,(err: any , result: any) => {
-                            if (err) throw err;
-                            console.log("MYSQL Database created: ", this.dbName);
-
-                            resolve();
-                        });
-                    });
-                });
 
             }catch (err){
                 if (this.errorReport) console.error(err);
@@ -104,16 +113,16 @@ class MySQL implements DatabaseInterface{
     }
 
 
-    async isInDB(table : string, field: string, text : string): Promise<boolean>
+    async isInDB(table : string, field: string, text : string): Promise<any>
     {
-        return new Promise<boolean>(async (resolve: any, reject: any) => {
+        return new Promise<any>(async (resolve: any, reject: any) => {
 
             try {
-                const rows: any = await this.connection.query(`SELECT * FROM ${table} WHERE ${field} = '${text}' `);
-                return resolve( rows.length > 0 );
+                const rows: any = await this.query(`SELECT * FROM \`${table}\` WHERE \`${field}\` = '${text}';`);
+                resolve( rows.length > 0 );
 
             }catch(err){
-                if(this.errorReport) console.error("INDB Query Error: " + err);
+                if(this.errorReport) console.error("ISINDB Query Error: " + err);
                 reject();
             }
 
@@ -125,11 +134,11 @@ class MySQL implements DatabaseInterface{
         return new Promise<void>(async (resolve: any, reject: any) => {
 
             try {
-                const rows: any = await this.connection.query(`INSERT INTO ${table} ('${field}') VALUES ('${text}')`);
+                const rows: any = await this.query(`INSERT INTO \`${table}\` (\`${field}\`) VALUES ('${text}');`);
                 resolve( rows.length > 0) ;
 
             }catch(err){
-                if(this.errorReport) console.error("INDB Query Error: " + err);
+                if(this.errorReport) console.error("PUTINDB Query Error: " + err);
                 reject();
             }
 
