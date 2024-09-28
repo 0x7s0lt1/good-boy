@@ -6,12 +6,12 @@
 
 # Usage
 ```
-Usage: Good-Boy Crawler [options] <url>
+Usage: Good-Boy [options] <url>
 
 CLI to search text or image in a given website!
 
 Arguments:
-  url                           URL to Crawl
+  url                           URL
 
 Options:
   -V, --version                 output the version number
